@@ -7,7 +7,7 @@ const chalk = require('chalk');
 require('dotenv').config()
 const { debug } = require('./helpers');
 
-const {History, User, NodeObj, Decision} = require('./models')
+const {History, User, NodeObj, Decision, userHistoryObj} = require('./models')
 const keyboards = require('./keyboards');
 const kb = require('./keyboard_btns');
 
@@ -82,7 +82,7 @@ bot.onText(/\/money/, message => {
   // bot.sendPhoto(message.chat.id, './gumboll_emoji.jpg');
 })
 
-bot.onText(/\/start/, message => {
+bot.onText(/\/start/, async message => {
   const {id: chatId} = message.chat
   const text = `Здравствуй, ${message.from.first_name}\nВыберите команду.`;
   bot.sendMessage(chatId, text, {
@@ -92,23 +92,26 @@ bot.onText(/\/start/, message => {
     }
   });
 
-  // Процесс идентификации
-  User.find().then(data => {
-    // console.log("Users.find(): ", debug(data));
-    const { from: {first_name, username, language_code} } = message;
-    if(!data.some(({username: mongoUsername}) => mongoUsername === username)) {
-      const newUser = User({
-        username,
-        first_name,
-        language_code,
-        currentHistory: 'null',
-        histories: [],
-      });
-      newUser.save().then(() => log(chalk.blue.bgRed.bold('Success save')));
-    }
+  const { from: {first_name, username, language_code} } = message;
 
-  })
-  .catch(er => console.log("Mongo err: ", er));
+  const user = await User.findOne({username});
+  if(!user) {
+    const newUser = User({
+      username,
+      first_name,
+      chatId,
+      language_code,
+      currentHistory: 'null',
+      histories: [],
+    });
+
+    newUser.save()
+    .then(() => log(chalk.blue.bgRed.bold('Success save')))
+    .catch(er => console.log("Mongo err: ", er));
+  } else {
+    user.currentHistory = 'null';
+  }
+
 
   console.log(debug(message));
   // jsonfile.readFile(file)
@@ -145,8 +148,8 @@ bot.onText(/\/start/, message => {
   //   .then(() => log(chalk.blue.bgRed.bold('Success update')));
 
   let i = 0;
-  const id_now = '65412f7f34aed7ef4ed6eefa';
-  const id_next = '6541302d15f3e207f16b112d';
+  const id_now = '65412f7f34aed7ef4ed6eefa'; // node id от которого расходятся
+  const id_next = '6541302d15f3e207f16b112d'; // node id к которому сходятся
 
   const commentData = [
     'Я гадость', 
@@ -220,17 +223,17 @@ bot.onText(/\/file/, message => {
 });
 
 bot.on('message', async (message) => {
-  const {id: chatId} = message.chat;
+  const {id: chatId } = message.chat;
 
-
-  
-
-  // const silence = new Kitten({ name: message.text });
-  // // silence.speak();
-  // console.log(debug(message));
-  // await silence.save();
-
-  // page controller
+  const username = message.from.username;
+  // Контроллер ответов
+  const userData = await User.findOne({username});
+  if(userData && userData.currentHistory !== 'null') {
+    const chooseInd = message.text[0];
+    // внесение изменений 
+    
+    return
+  }
   
   switch(message.text) {
     case kb.back:
@@ -270,24 +273,24 @@ bot.on('message', async (message) => {
       });
       break
   }
-
-  // // request controller
-  // switch(message.text) {
-  //   case keyboards.origin.all:
-  //     // Запрос
-  //     // Отправка фиксированного числа сообщений
-  //     break
-  //   case keyboards.private.on:
-  //       console.log()
-  //     break
-  // }
+  
 })
 
-bot.on('callback_query', query => {
+bot.on('callback_query', async query => {
   const {id: chatId} = query.message.chat;
   // bot.sendMessage(query.message.chat.id, debug(query));
   log("callback_query", debug(query));
-  User.updateOne({username: query.from.username}, {currentHistory: query.data})
+  const user = await User.findOne({username: query.from.username}).populate(['UserHistoryObj']);
+  if(!user.histories.some(({history_id}) => history_id === query.data)) {
+    const uHO = userHistoryObj({history_id: query.data, current_pos: ''});
+    await uHO.save();
+    user.histories = [...user.histories, uHO._id]; 
+  }
+
+  user.currentHistory = query.data;
+  user.chatId = chatId;
+  
+  user.save()
     .then(() => {
       History.findById(query.data).then(data => {
         
@@ -299,7 +302,9 @@ bot.on('callback_query', query => {
             // Формирование первой клавиатуры
             const passMsg = `Чат начался\n${data.text}`;
 
-            const keyboard = [data.decisions.map(({comment}) => comment)];
+            const keyboard = [
+              data.decisions.map(({comment, index}) => `${index}: ${comment}`)
+            ];
             bot.sendMessage(chatId, passMsg, {
               reply_markup: {
                 keyboard,

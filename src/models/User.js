@@ -4,6 +4,7 @@ const UserSchema = new Schema({
   username: String,
   first_name: String,
   language_code: String,
+  chatId: String, 
   lastSeen: {
     type: Date, 
     default: Date.now()
