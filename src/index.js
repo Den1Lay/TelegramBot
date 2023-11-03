@@ -6,7 +6,13 @@ const {History, User, NodeObj, Decision, UserHistoryObj} = require('./models');
 const jsonfile = require('jsonfile');
 const chalk = require('chalk');
 require('dotenv').config()
-const { debug, debugSome } = require('./helpers');
+const { 
+  debug, 
+  debugSome, 
+  findAndReturn,
+  checkMessageRouter,
+  prepareKeyboard
+} = require('./helpers');
 
 
 const keyboards = require('./keyboards');
@@ -95,7 +101,7 @@ bot.onText(/\/start/, async message => {
   });
 
   const { from: {first_name, username, language_code} } = message;
-
+  debugger
   const user = await User.findOne({username}).populate(['histories']);
   if(!user) {
     const newUser = User({
@@ -112,16 +118,11 @@ bot.onText(/\/start/, async message => {
     .catch(er => console.log("Mongo err: ", er));
   } else {
     // develop mode
-    for(let i = 0; i < user.histories.length; i++) {
-      const workHis = user.histories[i];
-      if(''+workHis.history_id === user.currentHistory) {
-        await UserHistoryObj.updateOne({_id: workHis._id}, 
-          {
-            current_pos: ''
-          });
-        break
-      }
-    }
+    const workHis = findAndReturn(user.histories, 'history_id', user.currentHistory);
+    await UserHistoryObj.updateOne({_id: workHis._id}, 
+      {
+        current_pos: ''
+      });
     // develop mode end
 
     user.currentHistory = 'null';
@@ -174,19 +175,18 @@ bot.onText(/\/start/, async message => {
   const initDec = await Decision.find({nextNodeObj: '6544f75b383737d1e8b03369'})
 
 
-  const id_now = '6544f75b383737d1e8b03369'; // node id от которого расходятся
-  const id_next = '6544fc61e5fb3f802cf2f9ae'; // node id к которому сходятся
+  const id_now = '6544fc61e5fb3f802cf2f9ae'; // node id от которого расходятся
+  const id_next = '65454d0e8b9a9ad07edb7770'; // node id к которому сходятся
 
   // const commentData = [
   //   "Могло было быть и лучше",
   //   "У меня прилив сил и я хочу это с кем то обсудить"
   // ];
   const commentData = [
-    'Я гадость', 
-    'Я река', 
-    'Я бомба, которая взорвется от неправильного слова',
-    'Я нормис, хожу на спортик, на позитиве, осуждаю пары',
-    'Люблю просто так кричать на улице)))'
+    'Я тоже :)))', 
+    'Ты клоун)', 
+    'Я уважаю геев, *жмешь ему руку*',
+    '*даю резкую пощечину* и говорю ему, что он позорище',
   ]
   const decisionAr = commentData.map((el, i) => {
     return Decision(
@@ -214,7 +214,7 @@ bot.onText(/\/start/, async message => {
     const zero_node = NodeObj({
       _id: id_now,
       historyId: '6544f3939c8f1881fd48aea7',
-      text: 'Что ты можешь сказать про свой характер?',
+      text: 'Если к тебе подойдет человек и скажет, что я гей, то я отвечу ',
       decisions:decisionAr.map(({_id}) => _id)
     });
     // zero_node.save().then(() => log(chalk.blue.bgRed.bold('COMPLETE SAVE NODE')));
@@ -249,25 +249,51 @@ bot.onText(/\/file/, message => {
 
 bot.on('message', async (message) => {
   const {id: chatId } = message.chat;
+  
+  // need to check another passes
+  // Еще нужно фильтровать входящие сообщения, чтобы они соответствовали номерам а иначе скип
 
   const username = message.from.username;
   // Контроллер ответов
-  const userData = await User.findOne({username}).populate(['histories'])
+  const userData = await User.findOne({username}).populate(['histories']);
+
+  debugger
   if(userData && userData.currentHistory !== 'null') {
+    if(checkMessageRouter(message.text)) return;
     const chooseInd = message.text[0];
     // внесение изменений в UserHistoryObj
-    for(let i = 0; i < userData.histories.length; i++) {
-      const workHis = userData.histories[i];
-      if(''+workHis.history_id === userData.currentHistory) {
-      await UserHistoryObj.updateOne({_id: workHis._id}, 
-          {
-            current_pos: workHis.current_pos+chooseInd
-          });
-          break
-      }
-      // show new keyboard
-    }
+
+    const workHis = findAndReturn(userData.histories, 'history_id', userData.currentHistory);
+
+    log("workHis.linkToNearNodeObj  ", workHis.linkToNearNodeObj)
+    const currentNodeObj = await NodeObj.findById(workHis.linkToNearNodeObj).populate(['decisions']);
+      
+    const { nextNodeObj } = findAndReturn(currentNodeObj.decisions, 'index', chooseInd)
     
+    log("currentNodeObj", debug(currentNodeObj));
+    await UserHistoryObj.updateOne({_id: workHis._id}, 
+      {
+        current_pos: workHis.current_pos+chooseInd,
+        linkToNearNodeObj: nextNodeObj
+      });
+      
+    // Get data for new keyboard
+    const newNodeObj = await NodeObj.findById(nextNodeObj).populate(['decisions']);
+    log('newNodeObj ', newNodeObj);
+
+    // show new keyboard
+    const keyboard = prepareKeyboard(newNodeObj.decisions);
+    bot.sendMessage(chatId, newNodeObj.text, {
+      reply_markup: {
+        keyboard,
+        resize_keyboard:true,
+      }
+    });
+
+    
+    // cLog('success index handler');
+
+
     return
   }
   
@@ -318,11 +344,22 @@ bot.on('callback_query', async query => {
 
   let user = await User.findOne({username: query.from.username}).populate(['histories']);
   debugger
-  
+
+  const { zero_node } = await History.findById(query.data);
   if(!debugSome(user.histories, ({history_id}) => ''+history_id === query.data)) {
-    const uHO = UserHistoryObj({history_id: query.data, current_pos: ''});
+
+    console.log("ZERO_NODE: ", zero_node);
+    const uHO = UserHistoryObj(
+      {
+        history_id: query.data, 
+        current_pos: '', 
+        linkToNearNodeObj: zero_node,
+      });
     await uHO.save();
     user.histories = [...user.histories, uHO._id]; 
+  } else {
+    const {_id} = findAndReturn(user.histories, 'history_id', query.data);
+    await UserHistoryObj.updateOne({_id}, {linkToNearNodeObj: zero_node, current_pos: ''});
   }
 
   user.currentHistory = query.data;
@@ -339,9 +376,8 @@ bot.on('callback_query', async query => {
             // Формирование первой клавиатуры
             const passMsg = `Чат начался\n${data.text}`;
 
-            const keyboard = [
-              data.decisions.map(({comment, index}) => `${index}: ${comment}`)
-            ];
+            const keyboard = prepareKeyboard(data.decisions.reverse());
+            console.log("keyboard ", keyboard);
             bot.sendMessage(chatId, passMsg, {
               reply_markup: {
                 keyboard,

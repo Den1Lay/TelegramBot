@@ -5,7 +5,11 @@ const UserHistoryObjSchema = new Schema({
     type: Schema.Types.ObjectId,
     ref: 'History'
   },
-  current_pos: String
+  current_pos: String,
+  linkToNearNodeObj: {
+    type: Schema.Types.ObjectId,
+    ref: 'NodeObj'
+  }
 })
 
 const userHistoryObj = model('UserHistoryObj', UserHistoryObjSchema);
