@@ -19,7 +19,11 @@ const UserSchema = new Schema({
       type: Schema.Types.ObjectId,
       ref: 'UserHistoryObj'
     }
-  ]
+  ],
+  myRooms: [{
+    type: Schema.Types.ObjectId,
+    ref: 'MyRoom'
+  }]
 })
 
 const user = model('User', UserSchema);

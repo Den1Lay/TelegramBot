@@ -2,7 +2,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
-const {History, User, NodeObj, Decision, UserHistoryObj} = require('./models');
+const {History, User, NodeObj, Decision, UserHistoryObj, Room, MyRoom} = require('./models');
 const jsonfile = require('jsonfile');
 const chalk = require('chalk');
 require('dotenv').config()
@@ -11,7 +11,9 @@ const {
   debugSome, 
   findAndReturn,
   checkMessageRouter,
-  prepareKeyboard
+  prepareKeyboard,
+  endPointHandler,
+  prepareEndPointStr
 } = require('./helpers');
 
 
@@ -99,6 +101,10 @@ bot.onText(/\/start/, async message => {
       resize_keyboard:true,
     }
   });
+  if(!message.from.hasOwnProperty('username')) {
+    bot.sendMessage(chatId, "Настройте username в настройках Telegram");
+    return
+  }
 
   const { from: {first_name, username, language_code} } = message;
   debugger
@@ -244,7 +250,7 @@ bot.onText(/\/show/, message => {
 
 bot.onText(/\/file/, message => {
   const {id: chatId} = message.chat;
-  
+  bot.sendMessage('1387493009', "Я пока хз, что ты мне пишешь...");
 });
 
 bot.on('message', async (message) => {
@@ -252,12 +258,12 @@ bot.on('message', async (message) => {
   
   // need to check another passes
   // Еще нужно фильтровать входящие сообщения, чтобы они соответствовали номерам а иначе скип
+  // Еще нужно фильтровать гифки, картинки и прочее, прочее...
 
   const username = message.from.username;
   // Контроллер ответов
-  const userData = await User.findOne({username}).populate(['histories']);
-
-  debugger
+  const userData = await User.findOne({username}).populate(['histories', 'myRooms']);
+  log('userData ', debug(userData));
   if(userData && userData.currentHistory !== 'null') {
     if(checkMessageRouter(message.text)) return;
     const chooseInd = message.text[0];
@@ -267,10 +273,11 @@ bot.on('message', async (message) => {
 
     log("workHis.linkToNearNodeObj  ", workHis.linkToNearNodeObj)
     const currentNodeObj = await NodeObj.findById(workHis.linkToNearNodeObj).populate(['decisions']);
-      
+    if(!currentNodeObj) return;
+
     const { nextNodeObj } = findAndReturn(currentNodeObj.decisions, 'index', chooseInd)
     
-    log("currentNodeObj", debug(currentNodeObj));
+    
     await UserHistoryObj.updateOne({_id: workHis._id}, 
       {
         current_pos: workHis.current_pos+chooseInd,
@@ -279,16 +286,56 @@ bot.on('message', async (message) => {
       
     // Get data for new keyboard
     const newNodeObj = await NodeObj.findById(nextNodeObj).populate(['decisions']);
-    log('newNodeObj ', newNodeObj);
-
-    // show new keyboard
-    const keyboard = prepareKeyboard(newNodeObj.decisions);
-    bot.sendMessage(chatId, newNodeObj.text, {
-      reply_markup: {
-        keyboard,
-        resize_keyboard:true,
-      }
-    });
+    
+    if(newNodeObj) {
+      // show new keyboard
+      // next step in test
+      const keyboard = prepareKeyboard(newNodeObj.decisions);
+      bot.sendMessage(chatId, newNodeObj.text, {
+        reply_markup: {
+          keyboard,
+          resize_keyboard:true,
+        }
+      });
+    } else {
+      // end point
+      // Поиск функции, определение комнаты, запись в комнату
+      const {workRoom: preRoomData, newMyRoomObj} = await endPointHandler({bot, chatId, userData, pos: workHis.current_pos+chooseInd })
+      // const roomData = await Room.findOne({unique_name}).populate(['members']);
+      const roomData = await preRoomData.populate(['members']);
+      const usersMyRooms = await MyRoom.find({room_id: roomData._id});
+      // log('usersMyRooms ', usersMyRooms);
+      const resStr = prepareEndPointStr({roomData, userData, usersMyRooms});
+      const { visible, notification } = newMyRoomObj;
+      debugger
+      const msgData = await bot.sendMessage(chatId, "(⌐■_■)", {
+        reply_markup: {
+          remove_keyboard: true
+        }
+      })
+      await bot.deleteMessage(msgData.chat.id, msgData.message_id);
+      await bot.sendMessage(chatId, resStr, {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: visible ? 'Сделать невидимым' : 'Сделать видимым',
+                callback_data: 'endp'+'invs'+(visible ? 'off' : 'onn'),
+              }
+            ],
+            [
+              {
+                text: notification ? 'Отключить уведомления' : 'Включить уведомления',
+                callback_data: 'endp'+'noot'+(notification ? 'off' : 'onn'),
+              }
+            ],
+          ]
+        },
+        parse_mode: 'Markdown',
+        disable_web_page_preview: true,
+      });
+    }
+    
 
     
     // cLog('success index handler');
@@ -327,7 +374,7 @@ bot.on('message', async (message) => {
               [
                 {
                   text: 'Перейти',
-                  callback_data: _id,
+                  callback_data: 'prev'+_id,
                 }
               ],
             ]
@@ -341,10 +388,13 @@ bot.on('message', async (message) => {
 
 bot.on('callback_query', async query => {
   const {id: chatId} = query.message.chat;
+  const pre = query.data.slice(0, 4);
+  query.data = query.data.slice(4);
 
-  let user = await User.findOne({username: query.from.username}).populate(['histories']);
-  debugger
+  let user = await User.findOne({username: query.from.username}).populate(['histories', 'myRooms']);
 
+  if (pre === 'prev') {
+  
   const { zero_node } = await History.findById(query.data);
   if(!debugSome(user.histories, ({history_id}) => ''+history_id === query.data)) {
 
@@ -362,6 +412,31 @@ bot.on('callback_query', async query => {
     await UserHistoryObj.updateOne({_id}, {linkToNearNodeObj: zero_node, current_pos: ''});
   }
 
+  log('user  ', user);
+  // Организовать чистку по myRooms
+  // 
+  const myRoomObj = findAndReturn(user.myRooms, 'history_id', query.data);
+  if(myRoomObj) {
+    // повторное прохождение
+    // удаление пользователя из Room.members
+    const room = await Room.findById(myRoomObj.room_id);
+    let userInd = -1;
+    room.members.forEach((el, i) => {if(''+el === ''+user._id) {userInd = i}});
+    if(userInd > -1) {
+      room.members.splice(userInd, 1);
+    }
+    await room.save();
+    // удаление комнаты, чтобы не плодить мусор
+    await MyRoom.findByIdAndDelete(myRoomObj._id);
+
+    let myRoomObjInd = -1;
+    user.myRooms.forEach(({history_id}, i) => {if(''+history_id === ''+query.data) {myRoomObjInd = i}});
+    if(myRoomObjInd > -1) {
+      user.myRooms.splice(myRoomObjInd, 1);
+    }
+  }
+
+  // Дальнейшие действия
   user.currentHistory = query.data;
   user.chatId = chatId;
   
@@ -392,4 +467,52 @@ bot.on('callback_query', async query => {
     })
   // bot.answerCallbackQuery(query.id, `${query.data}`);
   // bot.sendMessage(query.message.chat.id, debug(query));
+  }
+
+
+  if(pre === 'endp'){
+    // endpoints moves
+    const flag = query.data.slice(0, 4);
+    const payload = query.data.slice(4);
+    log('endp data: ', flag, payload);
+    debugger
+    const workMyRoom = findAndReturn(user.myRooms, 'history_id', user.currentHistory);
+
+    const isTrue = payload === 'onn'
+    const isInvi = flag === 'invs' 
+    const newMyRoomObj = await MyRoom.findById(workMyRoom._id);
+    newMyRoomObj.visible = isInvi ? isTrue : newMyRoomObj.visible;
+    newMyRoomObj.notification = isInvi ? newMyRoomObj.notification : isTrue;
+    await newMyRoomObj.save();
+    debugger
+    const roomData = await Room.findById(workMyRoom.room_id).populate(['members']);
+    const usersMyRooms = await MyRoom.find({room_id: roomData._id});
+    const resStr = prepareEndPointStr({roomData, userData:user, usersMyRooms
+    });
+    const { visible, notification } = newMyRoomObj;
+
+    bot.sendMessage(chatId, resStr, {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: visible ? 'Сделать невидимым' : 'Сделать видимым',
+              callback_data: 'endp'+'invs'+(visible ? 'off' : 'onn'),
+            }
+          ],
+          [
+            {
+              text: notification ? 'Отключить уведомления' : 'Включить уведомления',
+              callback_data: 'endp'+'noot'+(notification ? 'off' : 'onn'),
+            }
+          ]
+        ]
+      },
+      parse_mode: 'Markdown',
+      disable_web_page_preview: true,
+    });
+
+    // 
+  }
+  
 })
