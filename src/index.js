@@ -179,20 +179,36 @@ bot.onText(/\/start/, async message => {
   // NodeObj.updateOne({'_id': '6541299d9c3d5abf96bd239d'}, {decisions: [d1, d2]})
   //   .then(() => log(chalk.blue.bgRed.bold('Success update')));
   const initDec = await Decision.find({nextNodeObj: '6544f75b383737d1e8b03369'})
+})
 
+bot.onText(/\/dev/, async message => {
+  if(message.from.username !== 'Den1Lay') return;
+  console.log('show')
+  const {id: chatId} = message.chat;
+  History.find().populate(['zero_node']).then(data => {
+    console.log(' History.find().populate([zero_node]) ', data);
+  })
+  .catch(er => log("Error: ", er));
 
-  const id_now = '6544fc61e5fb3f802cf2f9ae'; // node id от которого расходятся
-  const id_next = '65454d0e8b9a9ad07edb7770'; // node id к которому сходятся
+  await bot.sendMessage(chatId, ''+(new mongoose.Types.ObjectId()), {
+    reply_markup: {
+      keyboard: keyboards.origin,
+      resize_keyboard:true,
+    }
+  });
+  
+  const id_now = '6547b346263e7efed3d9474c'; // node id от которого расходятся
+  const id_next = '6547b9377e5f075443f41a00'; // node id к которому сходятся
 
   // const commentData = [
   //   "Могло было быть и лучше",
   //   "У меня прилив сил и я хочу это с кем то обсудить"
   // ];
   const commentData = [
-    'Я тоже :)))', 
-    'Ты клоун)', 
-    'Я уважаю геев, *жмешь ему руку*',
-    '*даю резкую пощечину* и говорю ему, что он позорище',
+    `Увлекательного общения, пока не надоест)`, 
+    'Я ищу супер серьезных отношений ', 
+    'Мне просто интересно, что будет дальше',
+    'Больше романтики',
   ]
   const decisionAr = commentData.map((el, i) => {
     return Decision(
@@ -214,38 +230,21 @@ bot.onText(/\/start/, async message => {
         resolve()
       }
     }
-    // saveAll(decisionAr, 0);
+    saveAll(decisionAr, 0);
   }).then(() => {
     // save nodeObj
     const zero_node = NodeObj({
       _id: id_now,
       historyId: '6544f3939c8f1881fd48aea7',
-      text: 'Если к тебе подойдет человек и скажет, что я гей, то я отвечу ',
+      text: 'Чего ты ждешь от общения?',
       decisions:decisionAr.map(({_id}) => _id)
     });
-    // zero_node.save().then(() => log(chalk.blue.bgRed.bold('COMPLETE SAVE NODE')));
+    zero_node.save().then(() => log(chalk.blue.bgRed.bold('COMPLETE SAVE NODE')));
   }).catch(er => {
     console.log('SAVE ERROR', er)
   })
 
-
-
-})
-
-bot.onText(/\/show/, message => {
-  console.log('show')
-  const {id: chatId} = message.chat;
-  History.find().populate(['zero_node']).then(data => {
-    console.log(' History.find().populate([zero_node]) ', data);
-  })
-  .catch(er => log("Error: ", er));
-
-  bot.sendMessage(chatId, ''+(new mongoose.Types.ObjectId()), {
-    reply_markup: {
-      keyboard: keyboards.origin,
-      resize_keyboard:true,
-    }
-  })
+  
 });
 
 bot.onText(/\/file/, message => {
@@ -263,7 +262,7 @@ bot.on('message', async (message) => {
   const username = message.from.username;
   // Контроллер ответов
   const userData = await User.findOne({username}).populate(['histories', 'myRooms']);
-  log('userData ', debug(userData));
+
   if(userData && userData.currentHistory !== 'null') {
     if(checkMessageRouter(message.text)) return;
     const chooseInd = message.text[0];
@@ -271,7 +270,6 @@ bot.on('message', async (message) => {
 
     const workHis = findAndReturn(userData.histories, 'history_id', userData.currentHistory);
 
-    log("workHis.linkToNearNodeObj  ", workHis.linkToNearNodeObj)
     const currentNodeObj = await NodeObj.findById(workHis.linkToNearNodeObj).populate(['decisions']);
     if(!currentNodeObj) return;
 
@@ -303,9 +301,9 @@ bot.on('message', async (message) => {
       const {workRoom: preRoomData, newMyRoomObj} = await endPointHandler({bot, chatId, userData, pos: workHis.current_pos+chooseInd })
       // const roomData = await Room.findOne({unique_name}).populate(['members']);
       const roomData = await preRoomData.populate(['members']);
-      const usersMyRooms = await MyRoom.find({room_id: roomData._id});
-      // log('usersMyRooms ', usersMyRooms);
-      const resStr = prepareEndPointStr({roomData, userData, usersMyRooms});
+      const usersMyRooms = await MyRoom.find({room_id: roomData._id}).populate(['user_id']);
+
+      const {str: resStr, noti} = prepareEndPointStr({roomData, userData, usersMyRooms});
       const { visible, notification } = newMyRoomObj;
       debugger
       const msgData = await bot.sendMessage(chatId, "(⌐■_■)", {
@@ -334,6 +332,33 @@ bot.on('message', async (message) => {
         parse_mode: 'Markdown',
         disable_web_page_preview: true,
       });
+
+      await new Promise((resolve, reject) => {
+        // уведомления
+        const sendNotification = (arr, i) => {
+          if(i < arr.length) {
+            bot.sendMessage(arr[i].chatId, "Новые пользователи в группе (¬‿¬)", {
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: "Смотреть",
+                      callback_data: 'endp'+'invs'+'onn'
+                    }
+                  ]
+                ]
+              }
+            }).then(() => {
+              sendNotification(arr, i+1);
+            })
+          } else {
+            resolve()
+          }
+        }
+        // resolve();
+        sendNotification(noti, 0);
+      })
+      log('noti', noti);
     }
     
 
@@ -356,7 +381,10 @@ bot.on('message', async (message) => {
       })
       break
     case kb.origin.info:
-      bot.sendMessage(chatId, 'Просто жми кнопку "К ТЕСТАМ"', {
+      const str = `
+      Основная идея бота заключается в том, чтобы подобрать для Вас человека с которым будет интересно общаться.\nДля этого необходимо выбрать тест из предлагаемых и ответить на все вопросы.\nЛюди, ответившие на все вопросы одинаково, попадают в группы, где они получают доступ к профилям друг друга.\nВ случае если Вы вернетесь на начальную страницу и повторно начнете проходить тест, то Вы будете удалены из предыдущей комнаты.\nВы можете одновременно находиться в 2х комнатах, если они относятся к разным тестам. Для того, чтобы приступить нажмите на кноку "К тестам"`
+      
+      bot.sendMessage(chatId, str, {
         reply_markup: {
           keyboard: keyboards.origin,
           resize_keyboard:true,
@@ -398,7 +426,6 @@ bot.on('callback_query', async query => {
   const { zero_node } = await History.findById(query.data);
   if(!debugSome(user.histories, ({history_id}) => ''+history_id === query.data)) {
 
-    console.log("ZERO_NODE: ", zero_node);
     const uHO = UserHistoryObj(
       {
         history_id: query.data, 
@@ -452,7 +479,6 @@ bot.on('callback_query', async query => {
             const passMsg = `Чат начался\n${data.text}`;
 
             const keyboard = prepareKeyboard(data.decisions.reverse());
-            console.log("keyboard ", keyboard);
             bot.sendMessage(chatId, passMsg, {
               reply_markup: {
                 keyboard,
@@ -487,7 +513,7 @@ bot.on('callback_query', async query => {
     debugger
     const roomData = await Room.findById(workMyRoom.room_id).populate(['members']);
     const usersMyRooms = await MyRoom.find({room_id: roomData._id});
-    const resStr = prepareEndPointStr({roomData, userData:user, usersMyRooms
+    const {str: resStr} = prepareEndPointStr({roomData, userData:user, usersMyRooms
     });
     const { visible, notification } = newMyRoomObj;
 

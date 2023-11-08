@@ -1,6 +1,10 @@
 const { Schema, default: mongoose, model } = require('mongoose');
 
 const MyRoomSchema = new Schema({
+  user_id: {
+    type: Schema.Types.ObjectId,
+    ref: 'User'
+  },
   room_id: {
     type: Schema.Types.ObjectId,
     ref: 'Room'

@@ -70,7 +70,6 @@ const prepareKeyboard = arr => {
 const endPointHandler = async (pass) => {
   debugger
   const {bot, chatId, userData, pos} = pass;
-  log('endPointHandler');
   const historyObj = await History.findById(userData.currentHistory);
 
   // преобразовать в строку.. 
@@ -111,6 +110,7 @@ const endPointHandler = async (pass) => {
     cLog('alreadey in');
   } else {
      newMyRoomObj = MyRoom({
+      user_id: userData._id,
       room_id: workRoom._id,
       visible: true,
       notification: true,
@@ -142,10 +142,10 @@ const getMyRoomObj = (myRooms, usersMyRooms) => {
 }
 
 const prepareEndPointStr = ({roomData, userData, usersMyRooms = []}) => {
-  log("usersMyRooms", usersMyRooms);
+  const notificationArr = [];
 
   const meUserId = ''+ userData._id;
-  const resArr = ["Пользователи в группе:\n"];
+  let resArr = ["Участники группу:\n"];
   roomData.members.forEach(({_id, username, first_name, myRooms }) => {
     // myRooms - id от myRoom
     // необходимо вытащить нужный id из myRooms, который есть в usersMyRooms и вернуть myRoomObj
@@ -157,10 +157,16 @@ const prepareEndPointStr = ({roomData, userData, usersMyRooms = []}) => {
         if(userMyRoomObj.visible) {
           resArr.push(`[${first_name}](https://t.me/${username})\n`);
         }
+        if(userMyRoomObj.notification) {
+          notificationArr.push(userMyRoomObj.user_id);
+        }
       }
     }
   })
-  return resArr.join('');
+  if(resArr.length === 1) {
+    resArr[0] = `В группе пока нет участников\nВам придет уведомление, когда кто то появится\n`;
+  }
+  return {str: resArr.join(''), noti: notificationArr};
 }
 
 module.exports = {
