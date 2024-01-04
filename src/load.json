@@ -1,0 +1,21 @@
+{
+  "update_id": 858997646,
+  "message": {
+    "message_id": 1526,
+    "from": {
+      "id": 947335488,
+      "is_bot": false,
+      "first_name": "Denilay",
+      "username": "Den1Lay",
+      "language_code": "ru"
+    },
+    "chat": {
+      "id": 947335488,
+      "first_name": "Denilay",
+      "username": "Den1Lay",
+      "type": "private"
+    },
+    "date": 1703603105,
+    "text": "1"
+  }
+}

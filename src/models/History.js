@@ -11,6 +11,7 @@ const HistorySchema = new Schema({
     ref: 'NodeObj',
     default: new mongoose.Types.ObjectId(),
   },
+  routeFunc: String,
   createdAt: {
     type: Date,
     default: Date.now()
@@ -20,3 +21,4 @@ const HistorySchema = new Schema({
 const history = model('History', HistorySchema);
 
 module.exports = history;
+56.85698841528306, 60.6074097433102

@@ -2,9 +2,11 @@ const { Schema, default: mongoose, model } = require('mongoose');
 
 const UserSchema = new Schema({
   username: String,
+  showName: String,
   first_name: String,
   language_code: String,
   chatId: String, 
+  msgId: String,
   lastSeen: {
     type: Date, 
     default: Date.now()
@@ -13,17 +15,18 @@ const UserSchema = new Schema({
     type: Date,
     default: Date.now()
   },
-  currentHistory: String,
-  histories: [
-    {
-      type: Schema.Types.ObjectId,
-      ref: 'UserHistoryObj'
-    }
-  ],
-  myRooms: [{
-    type: Schema.Types.ObjectId,
-    ref: 'MyRoom'
-  }]
+  mbti: String,
+  inTest: Boolean,
+
+  visible: String,
+  latitude: Number,
+  longitude: Number,
+  photo: String,
+  showText: String,
+  wish: String,
+  rate: Number,
+  resp: [String],
+  checked: [String],
 })
 
 const user = model('User', UserSchema);

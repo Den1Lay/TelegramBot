@@ -1,4 +1,5 @@
 const chalk = require('chalk');
+const vm = require('vm');
 
 const log = console.log;
 const cLog = pass => log(chalk.blue.bgRed.bold(pass));
@@ -71,19 +72,25 @@ const endPointHandler = async (pass) => {
   debugger
   const {bot, chatId, userData, pos} = pass;
   const historyObj = await History.findById(userData.currentHistory);
-
+  historyObj.pos = pos;
+  vm.createContext(historyObj);
+  
   // преобразовать в строку.. 
-  const roomRouter = ({historyObj, pos}) => {
-    // определяет комнату
-    const posArr = pos.split('');
-    // some logic
-    const unique_name = historyObj.unique_name + posArr.join('');
-    return ''+unique_name;
-  }
-
+  // const roomRouter = ({historyObj, pos}) => {
+  //   // определяет комнату
+  //   const posArr = pos.split('');
+  //   // some logic
+  //   const unique_name = historyObj.unique_name + posArr.join('');
+  //   return ''+unique_name;
+  // }
+  // const strRouteFunc = "({historyObj, pos}) => {\n    // определяет комнату\n    const posArr = pos.split('');\n    // some logic\n    const unique_name = historyObj.unique_name + posArr.join('');\n    return ''+unique_name;\n  }"
+  // const dataStrFunc = `var posArr = pos.split(''); var resName = unique_name + posArr.join('');`;
+  
+  vm.runInContext(historyObj.routeFunc, historyObj)
+  log('context', historyObj.pos);
   // служебная часть кода
   // работа с комнатами
-  const unique_name = roomRouter({historyObj, pos});
+  const unique_name = historyObj.resName;
   let workRoom = await Room.findOne({unique_name}).populate(['members']);
   if(workRoom) {
     // сохранение исходного workRoom

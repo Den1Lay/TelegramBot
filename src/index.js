@@ -2,9 +2,13 @@ const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
+const NodeCache = require( "node-cache" );
 const {History, User, NodeObj, Decision, UserHistoryObj, Room, MyRoom} = require('./models');
 const jsonfile = require('jsonfile');
 const chalk = require('chalk');
+const axios = require('axios');
+const express = require('express');
+const bodyParser = require('body-parser').json();
 require('dotenv').config()
 const { 
   debug, 
@@ -15,6 +19,12 @@ const {
   endPointHandler,
   prepareEndPointStr
 } = require('./helpers');
+const {
+  profile_callback,
+  profile_wakeup,
+  show_mbti
+} = require('./callback_handlers');
+const { mainDev } = require('./dev');
 
 
 const keyboards = require('./keyboards');
@@ -22,6 +32,7 @@ const kb = require('./keyboard_btns');
 
 const log = console.log;
 const cLog = pass => log(chalk.blue.bgRed.bold(pass));
+const cacheBase = new NodeCache();
 
 main().catch(err => console.log(err));
 
@@ -36,233 +47,252 @@ async function main() {
   // use `await mongoose.connect('mongodb://user:password@127.0.0.1:27017/test');` if your database has auth enabled
 }
 
-// const testHistory = History({
-//   name: "Пробничек",
-//   unique_name: "Пробничек001",
-//   language_code: "ru",
-//   comment: "Здесь собраны рандомные вопросы, не воспринимайте все в серьёз 😅",
-// });
-
-// testHistory.save().then(data => {
-//   log(chalk.blue.bgRed.bold('Success save'))
-// })
-
-
-
-// Vendor.deleteMany().then(() => {
-//   // console.log("DeleteMany");
-//   console.log("start working with json");
-//   const file = path.join(__dirname, '..', 'mac-vendors-export.json');
-//   fs.readFile(file, (err, data) => {
-//     // console.log(JSON.parse(data));
-//     const dataObj = JSON.parse(data);
-    
-//     const saveAll = i => {
-//       if(i < dataObj.length) {
-//         const vendor = new Vendor(dataObj[i]);
-//         vendor.save().then(() => {
-//           saveAll(i+1);
-//         });
-
-//       }
-//     }
-//     saveAll(0);
-    
-//     console.log('success save');
-//   })
-// })
-
 // ================================================================
+const url = 'https://d88e-94-140-144-153.ngrok-free.app';
+const port = 80;
+
+// const bot = new TelegramBot(process.env.TELEGRAM_BOT_KEY, {
+//   polling: {
+//     interval: 300, // Задержка прихода сообщения с клиента на сервер
+//     autoStart: true, // Бот был не запущено и ему была отправлена команда -> он её обработает
+//     params: {
+//       timeout: 10 // Таймаут между запросами
+//     }
+//   }
+// })
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_KEY, {
-  polling: {
-    interval: 300, // Задержка прихода сообщения с клиента на сервер
-    autoStart: true, // Бот был не запущено и ему была отправлена команда -> он её обработает
-    params: {
-      timeout: 10 // Таймаут между запросами
-    }
-  }
-})
+  baseApiUrl: "http://0.0.0.0:8081"
+});
+bot.setWebHook(`${url}/bot${process.env.TELEGRAM_BOT_KEY}`);
+const app = express();
+app.use(express.json());
+// app.use(bodyParser, (req, res, next) => {
+  
+//   // console.log("REQ BODY", req);
+//   next();
+// });
 
-bot.onText(/\/money/, message => {
-  bot.sendPhoto(message.chat.id, fs.readFileSync(__dirname+'/cute.jpg'), {
-    caption: "Нет такого... 🎃👑♠💢 ",  
-    parse_mode: 'Markdown'
-  });
-  // bot.sendPhoto(message.chat.id, './gumboll_emoji.jpg');
-})
+app.post(`/bot${process.env.TELEGRAM_BOT_KEY}`, (req, res) => {
+  console.time();
+  // cLog("REQ BODY");
+  // log(req.body);
+  // console.log(req);
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+app.listen(port, () => {
+  cacheBase.set('live_set_location', {data: []});
+  cacheBase.set('live_photo_send', {data: []});
+  cacheBase.set('live_set_name', {data: []});
+  console.log(`Express server is listening on ${port}`);
+});
+
+// bot.onText(/\/money/, message => {
+
+//   bot.sendPhoto(message.chat.id, fs.readFileSync(__dirname+'/cute.jpg'), {
+//     caption: "Нет такого... 🎃👑♠💢 ",  
+//     parse_mode: 'Markdown'
+//   });
+//   // bot.sendPhoto(message.chat.id, './gumboll_emoji.jpg');
+// })
 
 bot.onText(/\/start/, async message => {
   const {id: chatId} = message.chat
-  const text = `Здравствуй, ${message.from.first_name}\nВыберите команду.`;
-  bot.sendMessage(chatId, text, {
-    reply_markup: {
-      keyboard: keyboards.origin,
-      resize_keyboard:true,
-    }
-  });
+
   if(!message.from.hasOwnProperty('username')) {
     bot.sendMessage(chatId, "Настройте username в настройках Telegram");
-    return
+    return;
   }
 
   const { from: {first_name, username, language_code} } = message;
-  debugger
-  const user = await User.findOne({username}).populate(['histories']);
+
+  let user = await User.findOne({username});
+  const msgData = await resMsg(user?.mbti);
   if(!user) {
-    const newUser = User({
+    user = User({
       username,
+      showName:first_name,
       first_name,
       chatId,
       language_code,
-      currentHistory: 'null',
-      histories: [],
+      mbti: '',
+      inTest: false,
+
+      visible: 'close',
+      geoX: 0,
+      geoY: 0,
+      photo: '',
+      showText: '',
+      wish: "friend",
+      rate: 100,
+      resp: [],
+      checked: [],
     });
+  };
+  user.msgId = msgData.message_id;
+  // выбросить. Инфа о сообщении всегда доступна в калбеке
 
-    newUser.save()
-    .then(() => log(chalk.blue.bgRed.bold('Success save')))
+  user.save()
+    .then(() => {
+      log(chalk.blue.bgRed.bold('Success save'))
+    })
     .catch(er => console.log("Mongo err: ", er));
-  } else {
-    // develop mode
-    const workHis = findAndReturn(user.histories, 'history_id', user.currentHistory);
-    await UserHistoryObj.updateOne({_id: workHis._id}, 
-      {
-        current_pos: ''
-      });
-    // develop mode end
 
-    user.currentHistory = 'null';
-    user.save()
-    .catch(er => console.log("Mongo err: ", er));
+  async function resMsg(showGroup = false) {
+    console.log("showGroup ", showGroup); 
+    const resMsgData = await bot.sendMessage(chatId, "Основная информация", {
+      reply_markup: {
+        inline_keyboard: [
+          showGroup ?
+          [
+            {
+              text: "Профиль",
+              callback_data: 'profile',
+            },
+            {
+              text: "Группы",
+              callback_data: 'groups'
+            },
+            {
+              
+            }
+          ]
+          :
+          [
+            {
+              text: "Профиль",
+              callback_data: 'profile',
+            }
+          ]
+        ],
+      },
+      parse_mode: 'Markdown',
+      disable_web_page_preview: true,
+    });
+    console.log("resMsgData ", resMsgData);
+    return resMsgData;
   }
-
-
-  // const firstHistory = History({
-  //   name: 'Пробничек',
-  //   unique_name: 'Пробничек',
-  //   language_code: 'RU', 
-  //   comment: 'Ничего серьезного, легкие вопросы чтобы развлечься и найти себе новых знакомств с теми людьми, которых Вы ищите'
-  // })
-  // const historySave = await firstHistory.save();
-  // console.log("historySave ", debug(historySave));
-
-  // const fh = await History.findOne({unique_name: 'Пробничек'}).populate(['zero_node'])
-
-  // const zero_node = NodeObj({
-  //   historyId: fh._id,
-  //   text: 'Как у тебя дела?',
-  //   decisions:[]
-  // });
-
-  // const zero_node_save = await zero_node.save();
-  // log('zero_node_save', debug(zero_node_save));
-
-  // zero_node.save().then(data => {
-  //   log(chalk.blue.bgRed.bold('Success save'))
-  // })
-
-  // const zero_node_id = '6541299d9c3d5abf96bd239d';
-
-  // History.updateOne({'_id': '6541276de41a1b250a61b756'}, {zero_node: zero_node_id})
-  //   .then(() => log(chalk.blue.bgRed.bold('Success update')));
-
-  // const newDecision = Decision(
-  //   {
-  //     comment: 'У меня прилив сил и я хочу это с кем то обсудить',
-  //     index: 1,
-  //   }
-  // )
-  // newDecision.save().then(() => log(chalk.blue.bgRed.bold('Success save')));
-
-  // const d1 = '65412d3eb223a4dc3182855e';
-  // const d2 = '65412d5c7919474e1d0dde43';
-  // NodeObj.updateOne({'_id': '6541299d9c3d5abf96bd239d'}, {decisions: [d1, d2]})
-  //   .then(() => log(chalk.blue.bgRed.bold('Success update')));
-  const initDec = await Decision.find({nextNodeObj: '6544f75b383737d1e8b03369'})
-})
-
-bot.onText(/\/dev/, async message => {
-  if(message.from.username !== 'Den1Lay') return;
-  console.log('show')
-  const {id: chatId} = message.chat;
-  History.find().populate(['zero_node']).then(data => {
-    console.log(' History.find().populate([zero_node]) ', data);
-  })
-  .catch(er => log("Error: ", er));
-
-  await bot.sendMessage(chatId, ''+(new mongoose.Types.ObjectId()), {
-    reply_markup: {
-      keyboard: keyboards.origin,
-      resize_keyboard:true,
-    }
-  });
-  
-  const id_now = '6547b346263e7efed3d9474c'; // node id от которого расходятся
-  const id_next = '6547b9377e5f075443f41a00'; // node id к которому сходятся
-
-  // const commentData = [
-  //   "Могло было быть и лучше",
-  //   "У меня прилив сил и я хочу это с кем то обсудить"
-  // ];
-  const commentData = [
-    `Увлекательного общения, пока не надоест)`, 
-    'Я ищу супер серьезных отношений ', 
-    'Мне просто интересно, что будет дальше',
-    'Больше романтики',
-  ]
-  const decisionAr = commentData.map((el, i) => {
-    return Decision(
-      {
-        comment: el,
-        index: i,
-        nextNodeObj: id_next,
-      }
-    )
-  });
-  
-  const decisionSave =  new Promise((resolve, reject) => {
-    const saveAll = (arr, i) => {
-      if(i < arr.length) {
-        arr[i].save().then(() => {
-          saveAll(arr, i+1);
-        }).catch(er => reject(er));
-      } else {
-        resolve()
-      }
-    }
-    saveAll(decisionAr, 0);
-  }).then(() => {
-    // save nodeObj
-    const zero_node = NodeObj({
-      _id: id_now,
-      historyId: '6544f3939c8f1881fd48aea7',
-      text: 'Чего ты ждешь от общения?',
-      decisions:decisionAr.map(({_id}) => _id)
-    });
-    zero_node.save().then(() => log(chalk.blue.bgRed.bold('COMPLETE SAVE NODE')));
-  }).catch(er => {
-    console.log('SAVE ERROR', er)
-  })
-
-  
 });
 
-bot.onText(/\/file/, message => {
+bot.onText(/\/dev/, async message => {
   const {id: chatId} = message.chat;
-  bot.sendMessage('1387493009', "Я пока хз, что ты мне пишешь...");
+  if(message.from.username !== 'Den1Lay') {
+    await bot.sendMessage(chatId, "Используй кнопку 'Стартовая страница'");
+    return 
+  }
+  console.log('show')
+  
 });
 
 bot.on('message', async (message) => {
   const {id: chatId } = message.chat;
+  const username = message.from.username;
+  log('message: ', message);
   
+  const user = await User.findOne({username});
+  const check_location_data = message?.location;
+
+  const live_set_location = cacheBase.get('live_set_location');
+  // Контроллер изменения геолокации
+  if(check_location_data) {
+    await bot.sendMessage(chatId, "Ваши координаты обновлены", {
+      reply_markup:{
+        remove_keyboard: true
+      }
+    });
+    log("check_location_data ", check_location_data);
+    const { latitude, longitude } = check_location_data
+    user.latitude = latitude;
+    user.longitude = longitude;
+    user.save().catch(er => log(er));
+    profile_wakeup({user, bot, chatId});
+
+    const usernameInd = live_set_location.data.indexOf(username);
+    if(usernameInd != -1) {
+      live_set_location.data.splice(usernameInd, 1);
+      cacheBase.set('live_set_location', live_set_location);
+    }
+    return
+  }
+
+  // Контроль на лишние кнопки внизу
+  if(live_set_location.data.includes(username)) {
+    const usernameInd = live_set_location.data.indexOf(username);
+    if(usernameInd != -1) {
+      live_set_location.data.splice(usernameInd, 1);
+      cacheBase.set('live_set_location', live_set_location);
+    }
+    const msgData = await bot.sendMessage(chatId, "(⌐■_■)", {
+      reply_markup:{
+        remove_keyboard: true
+      }
+    });
+    bot.deleteMessage(chatId, msgData.message_id);
+    return
+  }
+  
+  // Контроллер изменения фото
+  const check_photo_data = message?.photo;
+  if(check_photo_data) {
+    const live_photo_send = cacheBase.get('live_photo_send');
+
+    if(live_photo_send.data.includes(username)) {
+      
+      bot.getFile(check_photo_data[check_photo_data.length-1].file_id).then((data) => {
+        const usernameInd = live_photo_send.data.indexOf(username);
+        live_photo_send.data.splice(usernameInd, 1);
+        cacheBase.set('live_photo_send', live_photo_send);
+        log('users_cache: ', live_photo_send);
+        log("file data: ", data);
+        const checkUserPhoto = user?.photo
+        if(checkUserPhoto) {
+          fs.unlink(checkUserPhoto, async er => {
+            log(er);
+            user.photo = data.file_path;
+        
+            user.save().catch(er => log(er));
+            // нужно предварительно удалить старую фотку, чтобы не сжирать память
+        
+            profile_wakeup({user, bot, chatId, dlsMsg: 'Ваше фото обновлено\n'});
+          });
+        }
+      })
+      .catch(er => log(er));
+    }
+    return
+  }
+
+  const live_set_name = cacheBase.get('live_set_name');
+  if(live_set_name.data.includes(username)) {
+    const usernameInd = live_set_name.data.indexOf(username);
+    live_set_name.data.splice(usernameInd, 1);
+    cacheBase.set('live_set_name', live_set_name);
+
+    user.showName = message.text;
+    user.save().catch(er => log(er));
+
+    profile_wakeup({user, bot, chatId, dlsMsg: 'Ваше имя обновлено\n'});
+    return
+  }
+  
+  // await bot.sendDocument(chatId, path.resolve(__dirname, 'Keil_v536.zip'));
+  // console.log('message', message);
+  console.timeEnd();
+
+  return;
   // need to check another passes
   // Еще нужно фильтровать входящие сообщения, чтобы они соответствовали номерам а иначе скип
   // Еще нужно фильтровать гифки, картинки и прочее, прочее...
 
-  const username = message.from.username;
-  // Контроллер ответов
-  const userData = await User.findOne({username}).populate(['histories', 'myRooms']);
-
+  // log(message, username);
+  if(message.hasOwnProperty('location') && username === 'Den1Lay') {
+    // log('backdoor');
+    mainDev({userData, message, bot});
+    return 
+  };
+  
   if(userData && userData.currentHistory !== 'null') {
     if(checkMessageRouter(message.text)) return;
     const chooseInd = message.text[0];
@@ -393,22 +423,33 @@ bot.on('message', async (message) => {
       break
     case kb.origin.toTests:
       History.find().populate(['zero_node']).then(data => {
-        const { _id, name, comment, zero_node } = data[0];
-        const resText = `${name}\n${comment}`
-
-        bot.sendMessage(chatId, resText, {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: 'Перейти',
-                  callback_data: 'prev'+_id,
-                }
-              ],
-            ]
+        data.forEach(history => {
+          const { _id, name, comment, zero_node, unique_name } = history;
+          const resText = `${name}\n${comment}`
+          const sendMsg = () => {
+            bot.sendMessage(chatId, resText, {
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: 'Перейти',
+                      callback_data: 'prev'+_id,
+                    }
+                  ],
+                ]
+              }
+            });
           }
+          if(unique_name !== 'dev') {
+            sendMsg();
+          }
+          if(unique_name === 'dev' && message.from.username === 'Den1Lay') {
+            sendMsg();
+          }
+          
         });
-      });
+      })
+        
       break
   }
   
@@ -416,129 +457,88 @@ bot.on('message', async (message) => {
 
 bot.on('callback_query', async query => {
   const {id: chatId} = query.message.chat;
-  const pre = query.data.slice(0, 4);
-  query.data = query.data.slice(4);
+  const callback_data = query.data;
+  // query.data = query.data.slice(4);
+  console.log("query ", query);
 
-  let user = await User.findOne({username: query.from.username}).populate(['histories', 'myRooms']);
+  let user = await User.findOne({username: query.from.username});
+  const username = query.from.username;
+  // нужно заменить на использование данных из кеша.
 
-  if (pre === 'prev') {
-  
-  const { zero_node } = await History.findById(query.data);
-  if(!debugSome(user.histories, ({history_id}) => ''+history_id === query.data)) {
-
-    const uHO = UserHistoryObj(
-      {
-        history_id: query.data, 
-        current_pos: '', 
-        linkToNearNodeObj: zero_node,
-      });
-    await uHO.save();
-    user.histories = [...user.histories, uHO._id]; 
-  } else {
-    const {_id} = findAndReturn(user.histories, 'history_id', query.data);
-    await UserHistoryObj.updateOne({_id}, {linkToNearNodeObj: zero_node, current_pos: ''});
+  if (callback_data === 'profile') {
+    profile_callback({user, query, bot});
   }
 
-  log('user  ', user);
-  // Организовать чистку по myRooms
-  // 
-  const myRoomObj = findAndReturn(user.myRooms, 'history_id', query.data);
-  if(myRoomObj) {
-    // повторное прохождение
-    // удаление пользователя из Room.members
-    const room = await Room.findById(myRoomObj.room_id);
-    let userInd = -1;
-    room.members.forEach((el, i) => {if(''+el === ''+user._id) {userInd = i}});
-    if(userInd > -1) {
-      room.members.splice(userInd, 1);
+  if(callback_data === 'set_geolocation') {
+    const live_set_location = cacheBase.get('live_set_location');
+    if(!live_set_location.data.includes(username)) {
+      live_set_location.data.push(username);
+      cacheBase.set('live_set_location', live_set_location);
     }
-    await room.save();
-    // удаление комнаты, чтобы не плодить мусор
-    await MyRoom.findByIdAndDelete(myRoomObj._id);
-
-    let myRoomObjInd = -1;
-    user.myRooms.forEach(({history_id}, i) => {if(''+history_id === ''+query.data) {myRoomObjInd = i}});
-    if(myRoomObjInd > -1) {
-      user.myRooms.splice(myRoomObjInd, 1);
-    }
-  }
-
-  // Дальнейшие действия
-  user.currentHistory = query.data;
-  user.chatId = chatId;
-  
-  user.save()
-    .then(() => {
-      History.findById(query.data).then(data => {
-        
-        NodeObj.findById(data.zero_node)
-          .populate(['decisions'])
-          .then((data) => {
-            
-            // Формирование первой клавиатуры
-            const passMsg = `Чат начался\n${data.text}`;
-
-            const keyboard = prepareKeyboard(data.decisions.reverse());
-            bot.sendMessage(chatId, passMsg, {
-              reply_markup: {
-                keyboard,
-                resize_keyboard:true,
-              }
-            });
-          })
-        
-      })
-
-      
-    })
-  // bot.answerCallbackQuery(query.id, `${query.data}`);
-  // bot.sendMessage(query.message.chat.id, debug(query));
-  }
-
-
-  if(pre === 'endp'){
-    // endpoints moves
-    const flag = query.data.slice(0, 4);
-    const payload = query.data.slice(4);
-    log('endp data: ', flag, payload);
-    debugger
-    const workMyRoom = findAndReturn(user.myRooms, 'history_id', user.currentHistory);
-
-    const isTrue = payload === 'onn'
-    const isInvi = flag === 'invs' 
-    const newMyRoomObj = await MyRoom.findById(workMyRoom._id);
-    newMyRoomObj.visible = isInvi ? isTrue : newMyRoomObj.visible;
-    newMyRoomObj.notification = isInvi ? newMyRoomObj.notification : isTrue;
-    await newMyRoomObj.save();
-    debugger
-    const roomData = await Room.findById(workMyRoom.room_id).populate(['members']);
-    const usersMyRooms = await MyRoom.find({room_id: roomData._id});
-    const {str: resStr} = prepareEndPointStr({roomData, userData:user, usersMyRooms
-    });
-    const { visible, notification } = newMyRoomObj;
-
-    bot.sendMessage(chatId, resStr, {
+    bot.sendMessage(chatId, "Используйте кнопку ниже", {
       reply_markup: {
-        inline_keyboard: [
+        keyboard: [
           [
             {
-              text: visible ? 'Сделать невидимым' : 'Сделать видимым',
-              callback_data: 'endp'+'invs'+(visible ? 'off' : 'onn'),
-            }
-          ],
-          [
-            {
-              text: notification ? 'Отключить уведомления' : 'Включить уведомления',
-              callback_data: 'endp'+'noot'+(notification ? 'off' : 'onn'),
+              text: "Отправить координаты", 
+              request_location: true
             }
           ]
-        ]
-      },
-      parse_mode: 'Markdown',
-      disable_web_page_preview: true,
-    });
+        ],
+        resize_keyboard:true,
+      }
+    })
+  }
 
-    // 
+  if(callback_data === 'set_photo') {
+    const live_photo_send = cacheBase.get('live_photo_send');
+    if(!live_photo_send.data.includes(username)) {
+      live_photo_send.data.push(username);
+      cacheBase.set('live_photo_send', live_photo_send);
+    }
+    bot.sendMessage(chatId, "Отправьте 1 картинку");
+
+    console.log("live_photo_send: ", live_photo_send);
+  }
+
+  if(callback_data === 'set_show_name') {
+    const live_set_name = cacheBase.get('live_set_name');
+    if(!live_set_name.data.includes(username)) {
+      live_set_name.data.push(username);
+      cacheBase.set('live_set_name', live_set_name);
+    }
+    bot.sendMessage(chatId, 'Напишите новое имя');
+
+    console.log("live_photo_send: ", live_set_name);
+  }
+
+  if(callback_data === 'set_visible') {
+    const cv = user.visible;
+    user.visible = cv === 'close' ? 'open' : cv === 'open' ? 'like' : 'close'
+    user.save().catch(er => log(er));
+    profile_callback({user, query, bot}, false);
+  }
+
+  if(callback_data === 'set_wish') {
+    const sw = user.wish;
+    user.wish = sw === 'friend' ? 'relation' : 'friend';
+    user.save().catch(er => log(er));
+    profile_callback({user, query, bot}, false);
+  }
+ 
+  if(callback_data === 'choose_mbti') {
+    show_mbti({user, query, bot});
+  }
+
+  if(callback_data.slice(0, 8) === 'set_mbti') {
+    const payload_type = callback_data.slice(9);
+    user.mbti = payload_type;
+    user.save().catch(er => log(er));
+    profile_callback({user, query, bot});
+  }
+
+  if(callback_data === 'return_profile') {
+    profile_callback({user, query, bot});
   }
   
 })
