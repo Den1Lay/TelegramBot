@@ -16,6 +16,7 @@ const UserSchema = new Schema({
     default: Date.now()
   },
   mbti: String,
+  searchType: String,
   inTest: Boolean,
 
   visible: String,
@@ -27,6 +28,7 @@ const UserSchema = new Schema({
   rate: Number,
   resp: [String],
   checked: [String],
+  location_range: Number,
 })
 
 const user = model('User', UserSchema);

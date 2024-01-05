@@ -1,9 +1,11 @@
-const profileKeyboard = ({showName, wish, mbti, latitude, longitude, visible}) => {
+const profileKeyboard = ({showName, wish, mbti, latitude, longitude, visible, photo}) => {
   const locateCheck = latitude !== 0 && longitude !== 0;
-  return [
+  const photoCheck = photo.length > 0;
+  const resCheck = mbti.length && photoCheck && locateCheck;
+  const resArr = [
     [
       {
-        text: showName,
+        text: `Имя: ${showName}`,
         callback_data: 'set_show_name',
       },
       {
@@ -27,6 +29,10 @@ const profileKeyboard = ({showName, wish, mbti, latitude, longitude, visible}) =
       {
         text: `Ищу ${wish === 'friend' ? 'друзей' : 'отношения'}`,
         callback_data: 'set_wish'
+      },
+      {
+        text: 'Изменить текст карточки',
+        callback_data: 'set_show_text'
       }
     ],
     [
@@ -40,126 +46,120 @@ const profileKeyboard = ({showName, wish, mbti, latitude, longitude, visible}) =
       }
     ],
     [
+      // {
+      //   text: "Группы",
+      //   callback_data: 'show_groups'
+      // }
+    ],
+    [
       {
         text: "Назад",
         callback_data: 'menu'
       },
-      {
-        text: "Вид моей карточки",
-        callback_data: 'show_my_card'
-      }
+      // {
+      //   text: "Вид моей карточки",
+      //   callback_data: 'show_my_card'
+      // }
     ]
-  ]
+  ];
+
+  if(resCheck) {
+    resArr[5].push({
+      text: "Группы",
+      callback_data: 'show_groups'
+    });
+    resArr[6].push({
+      text: "Вид моей карточки",
+      callback_data: 'show_my_card'
+    })
+  }
+  return resArr;
 }
 
 const mbtiKeyboard = () => {
-  return [
-    [
+  return ['SFJ', 'STJ', 'NFJ', 'NTJ', 'SFP', 'STP', 'NTP', 'NFP'].map(el=> {
+    return [
       {
-        text: "ESFJ",
-        callback_data: 'set_mbti_esfj',
+        text: 'E'+el,
+        callback_data: `set_mbti_e${el.toLowerCase()}`
       },
       {
-        text: "ISFJ",
-        callback_data: 'set_mbti_isfj',
-      } 
-    ],
-    [
-      {
-        text: "ESTJ",
-        callback_data: 'set_mbti_estj',
+        text: 'I'+el,
+        callback_data: `set_mbti_i${el.toLowerCase()}`
       },
-      {
-        text: "ISTJ",
-        callback_data: 'set_mbti_istj',
-      } 
-    ],
-    [
-      {
-        text: "ENFJ",
-        callback_data: 'set_mbti_enfj',
-      },
-      {
-        text: "INFJ",
-        callback_data: 'set_mbti_infj',
-      } 
-    ],
-    [
-      {
-        text: "ENTJ",
-        callback_data: 'set_mbti_entj',
-      },
-      {
-        text: "INTJ",
-        callback_data: 'set_mbti_intj',
-      } 
-    ],
-    [
-      {
-        text: "ISFP",
-        callback_data: 'set_mbti_isfp',
-      },
-      {
-        text: "ESFP",
-        callback_data: 'set_mbti_esfp',
-      } 
-    ],
-    [
-      {
-        text: "ISTP",
-        callback_data: 'set_mbti_istp',
-      },
-      {
-        text: "ESTP",
-        callback_data: 'set_mbti_estp',
-      } 
-    ],
-    [
-      {
-        text: "INFP",
-        callback_data: 'set_mbti_infp',
-      },
-      {
-        text: "ENFP",
-        callback_data: 'set_mbti_enfp',
-      } 
-    ],
-    [
-      {
-        text: "INTP",
-        callback_data: 'set_mbti_intp',
-      },
-      {
-        text: "ENTP",
-        callback_data: 'set_mbti_entp',
-      } 
-    ],
-    [
-      {
-        text: 'Назад',
-        callback_data: 'return_profile'
-      }
     ]
-  ]
+  });
+}
+
+const groupKeyboard = (type) => {
+  type = type.toUpperCase();
+  // ISTP: -> ESTP, ESFP, ISFP
+  const resArr = [`E${type[1]}T${type[3]}`, `I${type[1]}T${type[3]}`, `E${type[1]}F${type[3]}`, `I${type[1]}F${type[3]}`];
+  const allTypes = ['SFJ', 'STJ', 'NFJ', 'NTJ', 'SFP', 'STP', 'NTP', 'NFP'].map(el => ['E'+el, 'I'+el]).flat();
+  const filtered = allTypes.filter(el => !resArr.some(t => t === el));
+  let result = resArr.map(type => [{
+    text: `+${type}`,
+    callback_data: `choose_type_${type.toLowerCase()}`
+  }]);
+  const dlsArr = [];
+  for(let i = 0; i < filtered.length/2; i++) {
+    const type1 = filtered[i*2];
+    const type2 = filtered[i*2+1];
+    dlsArr.push([
+      {
+        text: type1,
+        callback_data: `choose_type_${type1.toLowerCase()}`
+      },
+      {
+        text: type2,
+        callback_data: `choose_type_${type2.toLowerCase()}`
+      }
+    ])
+  }
+  result = result.concat(dlsArr);
+  console.log("dlsArr ", dlsArr);
+
+  console.log("result ", result);
+  result.push([{
+    text: "Назад",
+    callback_data: 'profile'
+  }])
+  return result;
+}
+
+const prepare_markdown = (user) => {
+  const {latitude, longitude, photo, mbti} = user;
+  const locateCheck = latitude !== 0 && longitude !== 0;
+  const photoCheck = photo.length > 0;
+  const resCheck = !mbti.length || !photoCheck || !locateCheck;
+
+  const dls = `${!mbti.length ? '_тип личности MBTI,_ ' : ''}${!photo.length ? '_фото анкеты,_ ' : ''}${!locateCheck ? '_ваше местоположение,_' : ''}`;
+  const markdown = 
+  `*Профиль*\nДля редактирования нажмите на соотвествующую кнопку\n${resCheck ? 'Для доступа к группам Вам еще необходимо указать:\n' : ''}${resCheck ? dls : ''}`;
+  return markdown;
 }
 
 const  profile_callback = async ({user, query, bot}, updateText = true) => {
   const chat_id = query.message.chat.id;
   const message_id = query.message.message_id;
-  
-  if(updateText) bot.editMessageText("Профиль\nДля редактирования нажмите на соотвествующую кнопку", {chat_id, message_id});
+  // Здесь и происходят проверки и вывод дополнительной информации.
+  // const {} = user;
+  const markdown = prepare_markdown(user);
+  if(updateText) bot.editMessageText(markdown, {chat_id, message_id, parse_mode: 'Markdown'});
   bot.editMessageReplyMarkup(
     {
       inline_keyboard: profileKeyboard(user)
     }, 
     {chat_id, message_id}
   );
-  console.log("profile_callback ", {chat_id, message_id});
+  // console.log("profile_callback ", {chat_id, message_id});
 }
 
 const profile_wakeup = async ({bot, user, chatId, dlsMsg = ''}) => {
 
-  bot.sendMessage(chatId, dlsMsg+"Профиль", {
+  const markdown = prepare_markdown(user);
+  bot.sendMessage(chatId, dlsMsg+markdown, {
+    parse_mode: 'Markdown',
     reply_markup: {
       inline_keyboard: profileKeyboard(user)
     }
@@ -180,8 +180,21 @@ const show_mbti = async ({user, query, bot}) => {
 
 }
 
+const groups_callback = async ({user, query, bot}) => {
+  const chat_id = query.message.chat.id;
+  const message_id = query.message.message_id;
+  bot.editMessageText("Группы личностей.\nРекомендуемые с +", {chat_id, message_id});
+  bot.editMessageReplyMarkup(
+    {
+      inline_keyboard: groupKeyboard(user.mbti)
+    },
+    {chat_id, message_id}
+  )
+}
+
 module.exports = {
   profile_callback,
   profile_wakeup,
-  show_mbti
+  show_mbti,
+  groups_callback,
 }
