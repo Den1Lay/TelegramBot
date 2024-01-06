@@ -16,6 +16,10 @@ const UserSchema = new Schema({
     default: Date.now()
   },
   mbti: String,
+  mbtiData: {
+    type: Schema.Types.ObjectId,
+    ref: 'MbtiData'
+  },
   searchType: String,
   inTest: Boolean,
 

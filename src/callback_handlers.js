@@ -1,3 +1,5 @@
+const { getTestData } = require('./helpers');
+
 const profileKeyboard = ({showName, wish, mbti, latitude, longitude, visible, photo}) => {
   const locateCheck = latitude !== 0 && longitude !== 0;
   const photoCheck = photo.length > 0;
@@ -53,7 +55,7 @@ const profileKeyboard = ({showName, wish, mbti, latitude, longitude, visible, ph
     ],
     [
       {
-        text: "Назад",
+        text: "Стартовая страница",
         callback_data: 'menu'
       },
       // {
@@ -121,13 +123,13 @@ const groupKeyboard = (type) => {
 
   console.log("result ", result);
   result.push([{
-    text: "Назад",
+    text: "Профиль",
     callback_data: 'profile'
   }])
   return result;
 }
 
-const prepare_markdown = (user) => {
+const prepare_markdown = (user, dlsMsg = '') => {
   const {latitude, longitude, photo, mbti} = user;
   const locateCheck = latitude !== 0 && longitude !== 0;
   const photoCheck = photo.length > 0;
@@ -135,16 +137,16 @@ const prepare_markdown = (user) => {
 
   const dls = `${!mbti.length ? '_тип личности MBTI,_ ' : ''}${!photo.length ? '_фото анкеты,_ ' : ''}${!locateCheck ? '_ваше местоположение,_' : ''}`;
   const markdown = 
-  `*Профиль*\nДля редактирования нажмите на соотвествующую кнопку\n${resCheck ? 'Для доступа к группам Вам еще необходимо указать:\n' : ''}${resCheck ? dls : ''}`;
+  `${dlsMsg}*Профиль*\nДля редактирования нажмите на соотвествующую кнопку\n${resCheck ? 'Для доступа к группам Вам еще необходимо указать:\n' : ''}${resCheck ? dls : ''}`;
   return markdown;
 }
 
-const  profile_callback = async ({user, query, bot}, updateText = true) => {
+const  profile_callback = async ({user, query, bot, dlsMsg = ''}, updateText = true) => {
   const chat_id = query.message.chat.id;
   const message_id = query.message.message_id;
   // Здесь и происходят проверки и вывод дополнительной информации.
   // const {} = user;
-  const markdown = prepare_markdown(user);
+  const markdown = prepare_markdown(user, dlsMsg);
   if(updateText) bot.editMessageText(markdown, {chat_id, message_id, parse_mode: 'Markdown'});
   bot.editMessageReplyMarkup(
     {
@@ -183,7 +185,7 @@ const show_mbti = async ({user, query, bot}) => {
 const groups_callback = async ({user, query, bot}) => {
   const chat_id = query.message.chat.id;
   const message_id = query.message.message_id;
-  bot.editMessageText("Группы личностей.\nРекомендуемые с +", {chat_id, message_id});
+  bot.editMessageText("*Группы личностей.*\nРекомендуемые с +", {chat_id, message_id, parse_mode: 'Markdown'});
   bot.editMessageReplyMarkup(
     {
       inline_keyboard: groupKeyboard(user.mbti)
@@ -192,9 +194,159 @@ const groups_callback = async ({user, query, bot}) => {
   )
 }
 
+const groups_wakeup = async ({user, query, bot}) => {
+  const chat_id = query.message.chat.id;
+
+  bot.sendMessage(chat_id, "*Группы личностей.*\nРекомендуемые с +", {
+    parse_mode: 'Markdown',
+    reply_markup: {
+      inline_keyboard: groupKeyboard(user.mbti)
+    }
+  })
+}
+
+const start_wakeup = ({user, chatId, bot}) => {
+  const preview1 = 'C:\\Programming\\JavaScript\\TelegramAPIServer\\telegram-bot-api\\bin\\6782913082~AAGMSBN2o6V0hEP0bnZJRn2pMvEeseW4KnM\\photos\\Preview_10.jpg';
+    // const preview2 = 'C:\Programming\JavaScript\TelegramAPIServer\telegram-bot-api\bin\6782913082~AAGMSBN2o6V0hEP0bnZJRn2pMvEeseW4KnM\photos\Preview_20.jpg';
+
+    bot.sendPhoto(chatId, preview1, {
+      caption: "sheesh",
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: "Профиль",
+              callback_data: 'profile_wakeup',
+            },
+            {
+              text: "Группы",
+              callback_data: 'groups_wakeup'
+            }
+          ]
+        ]
+      }
+    })
+}
+
+const test_start = ({user, query, bot}) => {
+  const chat_id = query.message.chat.id;
+  const message_id = query.message.message_id;
+  const testData = getTestData();
+
+  const {text1, text2} = testData[0][0];
+  const resText = `Выберите утверждение, которое больше Вам подходит:\n1: ${text1}\n2: ${text2}\n`;
+
+  bot.editMessageText(`*Добро пожаловать в тест.\nВопрос ${1}/71*\n${resText}`, {chat_id, message_id, parse_mode: 'Markdown'});
+  bot.editMessageReplyMarkup(
+    {
+      inline_keyboard: [
+        [{
+          text: '1',
+          callback_data: 'test_next_dNi'
+        },
+        {
+          text: '2',
+          callback_data: 'test_next_dNe'
+        }],
+        [{
+          text: "Ничего",
+          callback_data: 'test_next_z'
+        }]
+      ]
+    },
+    {chat_id, message_id}
+  )
+}
+
+const test_next_step = ({user, query, bot, step, midMbti}) => {
+  const chat_id = query.message.chat.id;
+  const message_id = query.message.message_id;
+  const testData = getTestData();
+  // для определения текущего состояния используется step
+  let resText = '';
+  let inline_keyboard;
+  if(step < 28) {
+    // Часть double
+    const question = testData[0][step];
+    const {text1, text2} = question;
+    resText = `Выберите утверждение, которое больше Вам подходит:\n1: ${text1}\n2: ${text2}\n`;
+    inline_keyboard = prepareTypeD(question);
+  }
+  if(step >= 28 && step < 65) {
+    // часть с минусом / плюсом
+    const question = testData[0][step];
+    const {text} = question;
+    resText = `Согласные ли Вы с утверждением?\n\n ${text}\n`;
+    inline_keyboard = prepareTypeS(question);
+  }
+  if(step >= 65) {
+    const localStep = step - 65;
+    const question = testData[1][midMbti][localStep];
+    // console.log({midMbti, localStep, question});
+    const {text} = question;
+    resText =  `Согласные ли Вы с утверждением?\n\n ${text}\n`;
+    inline_keyboard = prepareTypeS(question);
+    
+    // определение интро, экстро
+    // использование midMbti
+  }
+  
+
+  bot.editMessageText(`*Вопрос ${step+1}/71*\n${resText}`, {chat_id, message_id, parse_mode: 'Markdown'});
+  bot.editMessageReplyMarkup(
+    {
+      inline_keyboard
+    },
+    {chat_id, message_id}
+  );
+
+  function prepareTypeD ({slot1, slot2}) {
+    return [
+      [{
+        text: '1',
+        callback_data: `test_next_d${slot1}`
+      },
+      {
+        text: '2',
+        callback_data: `test_next_d${slot2}`
+      }],
+      [{
+        text: "Ничего",
+        callback_data: 'test_next_z'
+      }]
+    ]
+  }
+
+  function prepareTypeS ({slot}) {
+    return [
+      [
+        {
+          text: 'Да',
+          callback_data: `test_next_s${slot}+`
+        },
+        {
+          text: 'Нет',
+          callback_data: `test_next_s${slot}-`
+        },
+      ],
+      [
+        {
+          text: 'Не уверен в ответе',
+          callback_data: 'test_next_z'
+        }
+      ]
+    ]
+  }
+}
+
 module.exports = {
   profile_callback,
   profile_wakeup,
   show_mbti,
   groups_callback,
+  groups_wakeup,
+  start_wakeup,
+  test_start,
+  test_next_step
 }

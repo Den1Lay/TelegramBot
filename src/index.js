@@ -3,28 +3,29 @@ const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
 const NodeCache = require( "node-cache" );
-const {History, User, NodeObj, Decision, UserHistoryObj, Room, MyRoom} = require('./models');
+const { User, MbtiData } = require('./models');
 const jsonfile = require('jsonfile');
 const chalk = require('chalk');
 const axios = require('axios');
 const express = require('express');
 const bodyParser = require('body-parser').json();
 require('dotenv').config()
-const { 
-  debug, 
-  debugSome, 
-  findAndReturn,
-  checkMessageRouter,
-  prepareKeyboard,
-  endPointHandler,
-  prepareEndPointStr
-} = require('./helpers');
+
 const {
   profile_callback,
   profile_wakeup,
   show_mbti,
-  groups_callback
+  groups_callback,
+  groups_wakeup,
+  start_wakeup,
+  test_start,
+  test_next_step,
 } = require('./callback_handlers');
+const {
+  getMbtiDataObj,
+  updateMbtiData,
+  calcMidMbti
+} = require('./helpers.js')
 const { mainDev } = require('./dev');
 
 
@@ -88,6 +89,7 @@ app.listen(port, () => {
   cacheBase.set('live_photo_send', {data: []});
   cacheBase.set('live_set_name', {data: []});
   cacheBase.set('live_set_text', {data: []});
+  cacheBase.set('live_mbti_data', {data: [], users: []});
   console.log(`Express server is listening on ${port}`);
 });
 
@@ -111,8 +113,10 @@ bot.onText(/\/start/, async message => {
   const { from: {first_name, username, language_code} } = message;
 
   let user = await User.findOne({username});
-  const msgData = await resMsg(user?.mbti);
+  // const msgData = await resMsg(user?.mbti);
+
   if(!user) {
+    const mbtiData = await MbtiData().save();
     user = User({
       username,
       showName:first_name,
@@ -120,6 +124,7 @@ bot.onText(/\/start/, async message => {
       chatId,
       language_code,
       mbti: '',
+      mbtiData: mbtiData._id,
       searchType: '',
       inTest: false,
 
@@ -135,7 +140,8 @@ bot.onText(/\/start/, async message => {
       checked: [],
     });
   };
-  user.msgId = msgData.message_id;
+  start_wakeup({user, chatId, bot});
+  // user.msgId = msgData.message_id;
   // выбросить. Инфа о сообщении всегда доступна в калбеке
 
   user.save()
@@ -143,38 +149,6 @@ bot.onText(/\/start/, async message => {
       log(chalk.blue.bgRed.bold('Success save'))
     })
     .catch(er => console.log("Mongo err: ", er));
-
-  async function resMsg(showGroup = false) {
-    console.log("showGroup ", showGroup); 
-    const resMsgData = await bot.sendMessage(chatId, "Основная информация", {
-      reply_markup: {
-        inline_keyboard: [
-          showGroup ?
-          [
-            {
-              text: "Профиль",
-              callback_data: 'profile',
-            },
-            {
-              text: "Группы",
-              callback_data: 'show_groups'
-            }
-          ]
-          :
-          [
-            {
-              text: "Профиль",
-              callback_data: 'profile',
-            }
-          ] 
-        ]
-      },
-      parse_mode: 'Markdown',
-      disable_web_page_preview: true,
-    });
-    console.log("resMsgData ", resMsgData);
-    return resMsgData;
-  }
 });
 
 bot.onText(/\/dev/, async message => {
@@ -190,18 +164,28 @@ bot.onText(/\/dev/, async message => {
 bot.on('message', async (message) => {
   const {id: chatId } = message.chat;
   const username = message.from.username;
-  log('message: ', message);
+  // log('message: ', message);
 
-  (()=>{
-    const x1 = 56.833363589186526, x2 = 60.65489663650853;
-    const y1 = 56.82401417761019, y2 = 60.658022652338815;
-    // const y1 = 56.84383720185981, y2 = 60.65342788385568;
-    const diag = Math.sqrt((x1-y1)**2+(x2-y2)**2);
-    console.log("diag ", diag);
-    console.log('koef diag/1200m ', diag/1200);
-    // diag = 0.01057 -- разница в 1 км. 
-    // koef = 0.00000881341294661604
-  })()
+  // отладка.
+  // if(message.text[0] = '+') {
+  //   const {data, users} = cacheBase.get('live_mbti_data');
+  //   if(users.length) {
+  //     data[0].mbtiDataObj.step = data[0].mbtiDataObj.step+10;
+
+  //     cacheBase.set('live_mbti_data', {users, data});
+  //   }
+  // }
+
+  // (()=>{
+  //   const x1 = 56.833363589186526, x2 = 60.65489663650853;
+  //   const y1 = 56.82401417761019, y2 = 60.658022652338815;
+  //   // const y1 = 56.84383720185981, y2 = 60.65342788385568;
+  //   const diag = Math.sqrt((x1-y1)**2+(x2-y2)**2);
+  //   console.log("diag ", diag);
+  //   console.log('koef diag/1200m ', diag/1200);
+  //   // diag = 0.01057 -- разница в 1 км. 
+  //   // koef = 0.00000881341294661604
+  // })()
   
   const user = await User.findOne({username});
   const check_location_data = message?.location;
@@ -315,179 +299,10 @@ bot.on('message', async (message) => {
   console.timeEnd();
 
   return;
-  // need to check another passes
-  // Еще нужно фильтровать входящие сообщения, чтобы они соответствовали номерам а иначе скип
-  // Еще нужно фильтровать гифки, картинки и прочее, прочее...
-
-  // log(message, username);
-  if(message.hasOwnProperty('location') && username === 'Den1Lay') {
-    // log('backdoor');
-    mainDev({userData, message, bot});
-    return 
-  };
-  
-  if(userData && userData.currentHistory !== 'null') {
-    if(checkMessageRouter(message.text)) return;
-    const chooseInd = message.text[0];
-    // внесение изменений в UserHistoryObj
-
-    const workHis = findAndReturn(userData.histories, 'history_id', userData.currentHistory);
-
-    const currentNodeObj = await NodeObj.findById(workHis.linkToNearNodeObj).populate(['decisions']);
-    if(!currentNodeObj) return;
-
-    const { nextNodeObj } = findAndReturn(currentNodeObj.decisions, 'index', chooseInd)
-    
-    
-    await UserHistoryObj.updateOne({_id: workHis._id}, 
-      {
-        current_pos: workHis.current_pos+chooseInd,
-        linkToNearNodeObj: nextNodeObj
-      });
-      
-    // Get data for new keyboard
-    const newNodeObj = await NodeObj.findById(nextNodeObj).populate(['decisions']);
-    
-    if(newNodeObj) {
-      // show new keyboard
-      // next step in test
-      const keyboard = prepareKeyboard(newNodeObj.decisions);
-      bot.sendMessage(chatId, newNodeObj.text, {
-        reply_markup: {
-          keyboard,
-          resize_keyboard:true,
-        }
-      });
-    } else {
-      // end point
-      // Поиск функции, определение комнаты, запись в комнату
-      const {workRoom: preRoomData, newMyRoomObj} = await endPointHandler({bot, chatId, userData, pos: workHis.current_pos+chooseInd })
-      // const roomData = await Room.findOne({unique_name}).populate(['members']);
-      const roomData = await preRoomData.populate(['members']);
-      const usersMyRooms = await MyRoom.find({room_id: roomData._id}).populate(['user_id']);
-
-      const {str: resStr, noti} = prepareEndPointStr({roomData, userData, usersMyRooms});
-      const { visible, notification } = newMyRoomObj;
-      debugger
-      const msgData = await bot.sendMessage(chatId, "(⌐■_■)", {
-        reply_markup: {
-          remove_keyboard: true
-        }
-      })
-      await bot.deleteMessage(msgData.chat.id, msgData.message_id);
-      await bot.sendMessage(chatId, resStr, {
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: visible ? 'Сделать невидимым' : 'Сделать видимым',
-                callback_data: 'endp'+'invs'+(visible ? 'off' : 'onn'),
-              }
-            ],
-            [
-              {
-                text: notification ? 'Отключить уведомления' : 'Включить уведомления',
-                callback_data: 'endp'+'noot'+(notification ? 'off' : 'onn'),
-              }
-            ],
-          ]
-        },
-        parse_mode: 'Markdown',
-        disable_web_page_preview: true,
-      });
-
-      await new Promise((resolve, reject) => {
-        // уведомления
-        const sendNotification = (arr, i) => {
-          if(i < arr.length) {
-            bot.sendMessage(arr[i].chatId, "Новые пользователи в группе (¬‿¬)", {
-              reply_markup: {
-                inline_keyboard: [
-                  [
-                    {
-                      text: "Смотреть",
-                      callback_data: 'endp'+'invs'+'onn'
-                    }
-                  ]
-                ]
-              }
-            }).then(() => {
-              sendNotification(arr, i+1);
-            })
-          } else {
-            resolve()
-          }
-        }
-        // resolve();
-        sendNotification(noti, 0);
-      })
-      log('noti', noti);
-    }
-    
-
-    
-    // cLog('success index handler');
-
-
-    return
-  }
-  
-
-  // Контроллер страниц
-  switch(message.text) {
-    case kb.back:
-      bot.sendMessage(chatId, 'Начальное меню', {
-        reply_markup: {
-          keyboard: keyboards.origin,
-          resize_keyboard:true,
-        }
-      })
-      break
-    case kb.origin.info:
-      const str = `
-      Основная идея бота заключается в том, чтобы подобрать для Вас человека с которым будет интересно общаться.\nДля этого необходимо выбрать тест из предлагаемых и ответить на все вопросы.\nЛюди, ответившие на все вопросы одинаково, попадают в группы, где они получают доступ к профилям друг друга.\nВ случае если Вы вернетесь на начальную страницу и повторно начнете проходить тест, то Вы будете удалены из предыдущей комнаты.\nВы можете одновременно находиться в 2х комнатах, если они относятся к разным тестам. Для того, чтобы приступить нажмите на кноку "К тестам"`
-      
-      bot.sendMessage(chatId, str, {
-        reply_markup: {
-          keyboard: keyboards.origin,
-          resize_keyboard:true,
-        }
-      })
-      break
-    case kb.origin.toTests:
-      History.find().populate(['zero_node']).then(data => {
-        data.forEach(history => {
-          const { _id, name, comment, zero_node, unique_name } = history;
-          const resText = `${name}\n${comment}`
-          const sendMsg = () => {
-            bot.sendMessage(chatId, resText, {
-              reply_markup: {
-                inline_keyboard: [
-                  [
-                    {
-                      text: 'Перейти',
-                      callback_data: 'prev'+_id,
-                    }
-                  ],
-                ]
-              }
-            });
-          }
-          if(unique_name !== 'dev') {
-            sendMsg();
-          }
-          if(unique_name === 'dev' && message.from.username === 'Den1Lay') {
-            sendMsg();
-          }
-          
-        });
-      })
-        
-      break
-  }
-  
 })
 
+
+// callbacks
 bot.on('callback_query', async query => {
   const {id: chatId} = query.message.chat;
   const callback_data = query.data;
@@ -503,11 +318,14 @@ bot.on('callback_query', async query => {
   }
 
   if(callback_data === 'set_geolocation') {
+    clearCache(user);
     const live_set_location = cacheBase.get('live_set_location');
     if(!live_set_location.data.includes(username)) {
       live_set_location.data.push(username);
       cacheBase.set('live_set_location', live_set_location);
     }
+    // удалить всех остальных
+    // нужна функция clean every cache
     bot.sendMessage(chatId, "Используйте кнопку ниже", {
       reply_markup: {
         keyboard: [
@@ -525,6 +343,8 @@ bot.on('callback_query', async query => {
 
   if(callback_data === 'set_photo') {
     const live_photo_send = cacheBase.get('live_photo_send');
+    clearCache(user);
+
     if(!live_photo_send.data.includes(username)) {
       live_photo_send.data.push(username);
       cacheBase.set('live_photo_send', live_photo_send);
@@ -535,6 +355,7 @@ bot.on('callback_query', async query => {
   }
 
   if(callback_data === 'set_show_name') {
+    clearCache(user);
     const live_set_name = cacheBase.get('live_set_name');
     if(!live_set_name.data.includes(username)) {
       live_set_name.data.push(username);
@@ -575,6 +396,7 @@ bot.on('callback_query', async query => {
   }
 
   if(callback_data === 'set_show_text') {
+    clearCache(user);
     const live_set_text = cacheBase.get('live_set_text');
     if(!live_set_text.data.includes(username)) {
       live_set_text.data.push(username);
@@ -607,7 +429,7 @@ bot.on('callback_query', async query => {
         inline_keyboard: [
           [
             {
-              text: "Вернуть ся к профилю",
+              text: "Вернуться к профилю",
               callback_data: 'profile_wakeup'
             }
           ]
@@ -622,6 +444,10 @@ bot.on('callback_query', async query => {
 
   if(callback_data === 'show_groups') {
     groups_callback({user, query, bot});
+  }
+
+  if(callback_data === 'groups_wakeup') {
+    groups_wakeup({user, query, bot});
   }
 
   const search_loop = async (isNext=false) => {
@@ -752,5 +578,148 @@ bot.on('callback_query', async query => {
       }
     });
   }
+
+  
+  if(callback_data === 'menu') {
+    start_wakeup({user, chatId: chatId, bot});
+  }
+
+  if(callback_data === 'test_start') { // протестировать
+    // Необходимо обнулить текущие результаты теста
+    // Необходимо обнулить текущий кеш
+    const {users, data} = cacheBase.get('live_mbti_data');
+    // log({users, data});
+    if(users.includes(user.username)) {
+      const ind = users.indexOf(user.username);
+      users.splice(ind, 1);
+      for(let i = 0; i < data.length; i++) {
+        if(data[i].username === user.username) {
+          data.splice(i, 1);
+        }
+      }
+    }
+
+    // log({users, data});
+    const mbtiDataObj = getMbtiDataObj();
+  
+    users.push(user.username);
+    data.push({username: user.username, mbtiDataObj});
+    // log({users, data, mbtiDataObj});
+    cacheBase.set('live_mbti_data', {users, data});
+    
+    await MbtiData.updateOne({_id: user.mbtiData}, mbtiDataObj);
+
+    test_start({user, query, bot});
+  };
+
+
+  const test_next = callback_data.slice(0, 9);
+  // log({test_next});
+  if(test_next === 'test_next') {
+    const flag = callback_data[10];
+    const {users, data} = cacheBase.get('live_mbti_data');
+    let userInd = 0;
+    for(let i = 0; i < data.length; i++) {
+      if(data[i].username === user.username) {
+        userInd = i;
+        break
+      }
+    }
+    // log({userInd});
+    
+    const cacheDataObj = data[userInd].mbtiDataObj;
+    // log({cacheDataObj});
+    // обработка сообщений
+    let midMbti = {payload: '', full: ''};
+    if(cacheDataObj.step >= 64) {
+      // необходимо определить после какого вопроса необходимо считать midMbti
+      midMbti = calcMidMbti(cacheDataObj);
+    }
+    if(flag === 'd') {
+      const fun = callback_data.slice(11, 13);
+      updateMbtiData({cacheDataObj, fun, flag});
+    }
+
+    if(flag === 's') {
+      const fun = callback_data.slice(11, 14);
+      const plus = callback_data.slice(14, 15) === '+';
+      log({fun, plus});
+      updateMbtiData({cacheDataObj, fun, flag, plus});
+    }
+
+    if(flag === 'z') {
+      cacheDataObj.step = cacheDataObj.step + 1;
+    }
+
+    
+    if(cacheDataObj.step >= 71) {
+      // обработка конечных результатов и выход в профиль
+      log("end point");
+      log({cacheDataObj});
+      const {E, I} = cacheDataObj;
+      const {full, payload} = midMbti;
+      let dlsSimb = E > I ? 'e' : 'i';
+      let resType;
+      if(E === I) {
+        resType = full;
+        // ориентирование на результат из теста
+        // dlsSimb = Math.random() > 0.5 ? 'e' : 'i';
+      } else {
+        resType = `${dlsSimb}${payload}`;
+      }
+      user.mbti = resType.toUpperCase();
+      user.save().catch(er => log(er));
+      profile_callback({user, query, bot, dlsMsg: `Ваш тип личности: _${user.mbti}_. Данные профиля обновлены.\n\n`});
+      
+      // очистка кеш, хранилища
+      const usersInd = users.indexOf(user.username);
+      users.splice(usersInd, 1);
+      data.splice(userInd, 1);
+      cacheBase.set('live_mbti_data', {users, data});
+      log({users, data});
+      return;
+    }
+
+    data[userInd].mbtiDataObj = cacheDataObj;
+    cacheBase.set('live_mbti_data', {users, data});
+    test_next_step({user, query, bot, step: cacheDataObj.step, midMbti: midMbti.payload});
+    
+  }
   
 })
+
+function clearCache(user) {
+  const username = user.username;
+  // const {data: locData} = cacheBase.get('live_set_location');
+  const {data: photoData} = cacheBase.get('live_photo_send');
+  const {data: nameData} = cacheBase.get('live_set_name');
+  const {data: textData} = cacheBase.get('live_set_text');
+
+  // const locDataInd = locData.indexOf(username);
+  const photoDataInd = photoData.indexOf(username);
+  const nameDataInd = nameData.indexOf(username);
+  const textDataInd = textData.indexOf(username);
+  
+  // if(locDataInd != -1) {
+  //   locData.splice(locDataInd, 1);
+  //   cacheBase.set('live_set_location', {data: locData});
+  // }
+
+  if(photoDataInd != -1) {
+    photoData.splice(photoDataInd, 1);
+    cacheBase.set('live_photo_send', {data: photoData});
+  }
+  
+  if(nameDataInd != -1) {
+    nameData.splice(nameDataInd, 1);
+    cacheBase.set('live_set_name', {data: nameData});
+  }
+
+  if(textDataInd != -1) {
+    textData.splice(textDataInd, 1);
+    cacheBase.set('live_set_text', {data: textData});
+  }
+
+  // log({locDataInd, photoDataInd})
+  log({photoData, nameData, textData});
+}

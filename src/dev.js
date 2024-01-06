@@ -1,5 +1,3 @@
-const { debug } = require('./helpers');
-
 const log = console.log;
 
 function mainDev({userData, message, bot}) {
