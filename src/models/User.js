@@ -7,6 +7,8 @@ const UserSchema = new Schema({
   language_code: String,
   chatId: String, 
   msgId: String,
+  mySex: String,
+  findSex: String,
   lastSeen: {
     type: Date, 
     default: Date.now()
@@ -22,6 +24,11 @@ const UserSchema = new Schema({
   },
   searchType: String,
   inTest: Boolean,
+
+  firstStart: {
+    type: Boolean,
+    default: true,
+  },
 
   visible: String,
   latitude: Number,

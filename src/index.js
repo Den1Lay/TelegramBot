@@ -20,6 +20,7 @@ const {
   start_wakeup,
   test_start,
   test_next_step,
+  preview_wakeup,
 } = require('./callback_handlers');
 const {
   getMbtiDataObj,
@@ -90,6 +91,11 @@ app.listen(port, () => {
   cacheBase.set('live_set_name', {data: []});
   cacheBase.set('live_set_text', {data: []});
   cacheBase.set('live_mbti_data', {data: [], users: []});
+
+  cacheBase.set('admin_set_photo_1', false);
+  cacheBase.set('admin_set_photo_2', false);
+  cacheBase.set('admin_set_db', false);
+  cacheBase.set('process_data', {preview_1_path: '', preview_2_path: ''});
   console.log(`Express server is listening on ${port}`);
 });
 
@@ -121,6 +127,9 @@ bot.onText(/\/start/, async message => {
       username,
       showName:first_name,
       first_name,
+      mySex: "m",
+      findSex: "f",
+
       chatId,
       language_code,
       mbti: '',
@@ -140,6 +149,12 @@ bot.onText(/\/start/, async message => {
       checked: [],
     });
   };
+  if(user.firstStart) {
+    const process_data = cacheBase.get('process_data');
+    await preview_wakeup({chatId: chatId, bot, process_data});
+    user.firstStart = false;
+    // user.save().catch(er => log(er));
+  }
   start_wakeup({user, chatId, bot});
   // user.msgId = msgData.message_id;
   // выбросить. Инфа о сообщении всегда доступна в калбеке
@@ -150,6 +165,12 @@ bot.onText(/\/start/, async message => {
     })
     .catch(er => console.log("Mongo err: ", er));
 });
+
+bot.onText(/\/preview/, async message => {
+  const {id: chatId} = message.chat;
+  const process_data = cacheBase.get('process_data');
+  preview_wakeup({chatId: chatId, bot, process_data});
+})
 
 bot.onText(/\/dev/, async message => {
   const {id: chatId} = message.chat;
@@ -164,7 +185,95 @@ bot.onText(/\/dev/, async message => {
 bot.on('message', async (message) => {
   const {id: chatId } = message.chat;
   const username = message.from.username;
-  // log('message: ', message);
+  log('message: ', message);
+
+
+  if(username === 'Den1Lay') {
+    // точка входа разработчика
+    if(message.text === 'setup_photo_1') {
+      cacheBase.set('admin_set_photo_1', true);
+    }
+
+    if(message.text === 'setup_photo_2') {
+      cacheBase.set('admin_set_photo_2', true);
+    }
+
+    if(message.text === 'get_db') {
+      User.find().then((data) => {
+        log({usersData: data});
+        const json = JSON.stringify(data);
+        const file_path = path.join(__dirname, 'db_data.json');
+        fs.writeFile(file_path, json, (er) => {
+          if(er) {
+            log({er});
+          }
+          bot.sendDocument(chatId, file_path);
+        })
+        
+      })
+    }
+
+    if(message.text === 'set_db') {
+      cacheBase.set('admin_set_db', true);
+    }
+
+    const check_photo_data = message?.photo;
+    const admin_set_photo_1 = cacheBase.get('admin_set_photo_1');
+    const admin_set_photo_2 = cacheBase.get('admin_set_photo_2');
+    if(check_photo_data && admin_set_photo_1) {
+      bot.getFile(check_photo_data[check_photo_data.length-1].file_id)
+      .then(data => {
+        log({fileData: data});
+        // 'process_data', {preview_1_path: '', preview_2_path: ''}
+        const process_data = cacheBase.get('process_data');
+        process_data.preview_1_path = data.file_path;
+        cacheBase.set('process_data', process_data);
+      })
+      .catch(er => log(er));
+      cacheBase.set('admin_set_photo_1', false);
+    }
+
+    if(check_photo_data && admin_set_photo_2) {
+      bot.getFile(check_photo_data[check_photo_data.length-1].file_id)
+      .then(data => {
+        log({fileData: data});
+        // 'process_data', {preview_1_path: '', preview_2_path: ''}
+        const process_data = cacheBase.get('process_data');
+        process_data.preview_2_path = data.file_path;
+        cacheBase.set('process_data', process_data);
+      })
+      .catch(er => log(er));
+      cacheBase.set('admin_set_photo_2', false);
+    }
+
+    const check_document_data = message?.document;
+    const admin_set_db = cacheBase.get('admin_set_db');
+
+    if(check_document_data && admin_set_db) {
+      bot.getFile(check_document_data.file_id).then(data => {
+        log({documentData: data});
+
+        fs.readFile(data.file_path, (er, data) => {
+          const db_data_obj = JSON.parse(data);
+          log({db_data_obj});
+          cacheBase.set('admin_set_db', false);
+          // доделать
+        })
+        
+      })
+    }
+
+    if(message?.text) {
+      if(message.text[0] == '1') {
+        const process_data = cacheBase.get('process_data');
+        log({process_data});
+      }
+    }
+  }
+  // публичная часть
+  
+
+  
 
   // отладка.
   // if(message.text[0] = '+') {
@@ -438,6 +547,21 @@ bot.on('callback_query', async query => {
     });
   }
 
+  if(callback_data === 'set_findSex') {
+    // user.findSex = user.findSex === 'm' ? 'f' : user.findSex === 'f' ? 'm' : 'a';
+    if (user.findSex === 'm') user.findSex = 'f';
+    else if (user.findSex === 'f') user.findSex = 'm';
+    // else if (user.findSex === 'a') user.findSex = 'm';
+    user.save().catch(er => log(er));
+    profile_callback({user, query, bot}, false);
+  }
+
+  if(callback_data === 'set_mySex') {
+    user.mySex = user.mySex === 'm' ? 'f' : 'm';
+    user.save().catch(er => log(er));
+    profile_callback({user, query, bot}, false);
+  }
+
   if(callback_data === 'profile_wakeup') {
     profile_wakeup({bot, user, chatId });
   }
@@ -457,7 +581,7 @@ bot.on('callback_query', async query => {
       type = user.searchType;
     }
     user.searchType = type;
-    const {location_range, latitude, longitude, resp, checked, wish} = user;
+    const {location_range, latitude, longitude, resp, checked, wish, findSex, mySex} = user;
     const lat_koef = 0.01057;
     const lon_koef = 0.0169;
 
@@ -469,6 +593,7 @@ bot.on('callback_query', async query => {
     const norArray = resp.concat(checked).map(usr => ({username: usr})).concat({username: user.username});
     console.log('norArray ', norArray);
     log({lat_low, lon_low, lat_high, lon_high});
+    // const searchArr = 
     const search_obj = {$and:
       [
         {latitude: {$gt: lat_low}}, 
@@ -476,7 +601,9 @@ bot.on('callback_query', async query => {
         {latitude: {$lt: lat_high}}, 
         {longitude: {$lt: lon_high}}, 
         {mbti: type},
-        {wish},
+        {mySex:findSex},
+        {findSex: mySex},
+        // {wish},
         {visible: 'open'},
         {$nor: norArray},
       ]
@@ -667,7 +794,7 @@ bot.on('callback_query', async query => {
       } else {
         resType = `${dlsSimb}${payload}`;
       }
-      user.mbti = resType.toUpperCase();
+      user.mbti = resType.toLowerCase();
       user.save().catch(er => log(er));
       profile_callback({user, query, bot, dlsMsg: `Ваш тип личности: _${user.mbti}_. Данные профиля обновлены.\n\n`});
       

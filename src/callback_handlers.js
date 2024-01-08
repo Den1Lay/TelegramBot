@@ -1,6 +1,6 @@
 const { getTestData } = require('./helpers');
 
-const profileKeyboard = ({showName, wish, mbti, latitude, longitude, visible, photo}) => {
+const profileKeyboard = ({showName, wish, mbti, latitude, longitude, visible, photo, mySex, findSex}) => {
   const locateCheck = latitude !== 0 && longitude !== 0;
   const photoCheck = photo.length > 0;
   const resCheck = mbti.length && photoCheck && locateCheck;
@@ -17,6 +17,10 @@ const profileKeyboard = ({showName, wish, mbti, latitude, longitude, visible, ph
     ],
     [
       {
+        text: `Мой пол: ${mySex === 'm' ? 'муж.' : 'жен.'}`,
+        callback_data: 'set_mySex'
+      },
+      {
         text: visible === 'close' ? "Вас не видно" : visible === 'open' ? 'Вы видны всем' : 'Доступ через лайки', // Доступен все, Доступен по лайкам
         callback_data: 'set_visible'
       }
@@ -28,9 +32,13 @@ const profileKeyboard = ({showName, wish, mbti, latitude, longitude, visible, ph
       }
     ],
     [
+      // {
+      //   text: `Ищу ${wish === 'friend' ? 'друзей' : 'отношения'}`,
+      //   callback_data: 'set_wish'
+      // },
       {
-        text: `Ищу ${wish === 'friend' ? 'друзей' : 'отношения'}`,
-        callback_data: 'set_wish'
+        text: `Показывать: ${findSex === 'm' ? 'муж.' : findSex === 'f' ? 'жен.' : 'всех'}`,
+        callback_data: 'set_findSex'
       },
       {
         text: 'Изменить текст карточки',
@@ -135,7 +143,7 @@ const prepare_markdown = (user, dlsMsg = '') => {
   const photoCheck = photo.length > 0;
   const resCheck = !mbti.length || !photoCheck || !locateCheck;
 
-  const dls = `${!mbti.length ? '_тип личности MBTI,_ ' : ''}${!photo.length ? '_фото анкеты,_ ' : ''}${!locateCheck ? '_ваше местоположение,_' : ''}`;
+  const dls = `${!mbti.length ? '_тип личности MBTI,_ ' : ''}${!photo.length ? '_фото анкеты,_ ' : ''}${!locateCheck ? '_ваше местоположение._' : ''}`;
   const markdown = 
   `${dlsMsg}*Профиль*\nДля редактирования нажмите на соотвествующую кнопку\n${resCheck ? 'Для доступа к группам Вам еще необходимо указать:\n' : ''}${resCheck ? dls : ''}`;
   return markdown;
@@ -205,28 +213,56 @@ const groups_wakeup = async ({user, query, bot}) => {
   })
 }
 
-const start_wakeup = ({user, chatId, bot}) => {
-  const preview1 = 'C:\\Programming\\JavaScript\\TelegramAPIServer\\telegram-bot-api\\bin\\6782913082~AAGMSBN2o6V0hEP0bnZJRn2pMvEeseW4KnM\\photos\\Preview_10.jpg';
-    // const preview2 = 'C:\Programming\JavaScript\TelegramAPIServer\telegram-bot-api\bin\6782913082~AAGMSBN2o6V0hEP0bnZJRn2pMvEeseW4KnM\photos\Preview_20.jpg';
+const preview_wakeup = async ({user={}, chatId, bot, process_data}) => {
+  const {preview_1_path, preview_2_path} = process_data;
 
-    bot.sendPhoto(chatId, preview1, {
-      caption: "sheesh",
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [
-            {
-              text: "Профиль",
-              callback_data: 'profile_wakeup',
-            },
-            {
-              text: "Группы",
-              callback_data: 'groups_wakeup'
-            }
-          ]
-        ]
-      }
-    })
+  if(!preview_1_path.length || !preview_2_path.length) {
+    bot.sendMessage(chatId, 'Нет файлов');
+    return
+  }
+  // const preview1 = 'C:\\Programming\\JavaScript\\TelegramAPIServer\\telegram-bot-api\\bin\\6782913082~AAGMSBN2o6V0hEP0bnZJRn2pMvEeseW4KnM\\photos\\Prev1.jpg';
+  // const preview2 = 'C:\\Programming\\JavaScript\\TelegramAPIServer\\telegram-bot-api\\bin\\6782913082~AAGMSBN2o6V0hEP0bnZJRn2pMvEeseW4KnM\\photos\\Prev2.jpg';
+  await bot.sendMediaGroup(chatId, [
+    {
+      type: 'photo',
+      media: preview_1_path,
+      // capture: "Не агритесь за шакальное качество"
+    },
+    {
+      type: 'photo',
+      media: preview_2_path
+    },
+  ]);
+  return
+}
+
+const start_wakeup = async ({user, chatId, bot}) => {
+  const {latitude, longitude, photo, mbti} = user;
+  const locateCheck = latitude !== 0 && longitude !== 0;
+  const photoCheck = photo.length > 0;
+  const resCheck = mbti.length && photoCheck && locateCheck;
+
+  const resArr = [
+    {
+      text: "Профиль",
+      callback_data: 'profile_wakeup',
+    }
+  ];
+  if (resCheck) {
+    resArr.push({
+      text: "Группы",
+      callback_data: 'groups_wakeup'
+    });
+  }
+
+  bot.sendMessage(chatId, `Используйте кнопки ниже.\nПри возникновении вопрос используйте команду "Описание" или обратитесь в тех поддержку.\nКонтакт в описании бота.`, {
+    parse_mode: 'Markdown',
+    reply_markup: {
+      inline_keyboard: [
+        resArr
+      ]
+    }
+  });
 }
 
 const test_start = ({user, query, bot}) => {
@@ -348,5 +384,6 @@ module.exports = {
   groups_wakeup,
   start_wakeup,
   test_start,
-  test_next_step
+  test_next_step,
+  preview_wakeup
 }

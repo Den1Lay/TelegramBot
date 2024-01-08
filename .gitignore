@@ -1,2 +1,9 @@
 /node_modules
+/ТЗ
+/Изображения
+/archive
 .env
+token.txt
+toDo.txt
+token.txt
+run.sh
