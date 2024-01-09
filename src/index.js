@@ -51,7 +51,8 @@ async function main() {
 }
 
 // ================================================================
-const url = 'https://22ab-94-140-144-153.ngrok-free.app';
+// const url = 'https://22ab-94-140-144-153.ngrok-free.app';
+const url = process.env.API_URL
 const port = 80;
 
 // const bot = new TelegramBot(process.env.TELEGRAM_BOT_KEY, {
