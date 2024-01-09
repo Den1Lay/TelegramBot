@@ -8,7 +8,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "nodemon": "nodemon ./src/index.js",
     "debug": "node --inspect ./src/index.js",
-    "load": "node ./src/load.js"
+    "load": "node ./src/load.js",
+    "prod": "pm2 start ./src/index.js"
   },
   "keywords": [],
   "author": "",
