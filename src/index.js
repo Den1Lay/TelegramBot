@@ -383,9 +383,11 @@ bot.on('message', async (message) => {
         console.log("checkUserPhoto ", checkUserPhoto);
 
         const saveAndUpdateUserPhoto = () => {
+
+          
           const fileName = getPhotoName(data.file_path);
           const nearPath = path.resolve(__dirname, '..', '..', 'decode_pictures', fileName);
-
+          log("saveAndUpdateUserPhoto");
           fs.readFile(data.file_path, (er, buf) => {
             if(er) log('user photo fs.readFile error: ', er);
             fs.writeFile(nearPath, buf, (er) => {
@@ -410,7 +412,7 @@ bot.on('message', async (message) => {
               });
             }
           });
-          
+
         } else {
           saveAndUpdateUserPhoto();
         }
