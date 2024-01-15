@@ -27,6 +27,10 @@ const {
   updateMbtiData,
   calcMidMbti
 } = require('./helpers.js')
+
+const {
+  getPhotoName
+} = require('./common_helpers.js');
 const { mainDev } = require('./dev');
 
 
@@ -87,6 +91,16 @@ app.post(`/bot${process.env.TELEGRAM_BOT_KEY}`, (req, res) => {
 });
 
 app.listen(port, () => {
+  const picturePath = path.resolve(__dirname, '..', '..', 'decode_pictures');
+  fs.access(picturePath, (er) => {
+    if(er) {
+      log('fs.access error: ', er);
+      fs.mkdir(picturePath, (er) => {
+        if(er) log('fs.mkdir error: ', er);
+      })
+    }
+  });
+
   cacheBase.set('live_set_location', {data: []});
   cacheBase.set('live_photo_send', {data: []});
   cacheBase.set('live_set_name', {data: []});
@@ -221,14 +235,29 @@ bot.on('message', async (message) => {
     const check_photo_data = message?.photo;
     const admin_set_photo_1 = cacheBase.get('admin_set_photo_1');
     const admin_set_photo_2 = cacheBase.get('admin_set_photo_2');
+    const saveAndUpdatePath = ({data, key, fixedName='prev.jpg'}) => {
+      // const photoName = getPhotoName(data.file_path);
+      fs.readFile(data.file_path, (er, buf) => {
+        if(er) log("fs.readFile setPhoto er ", er);
+        const nearPath = path.resolve(__dirname, '..', '..', 'decode_pictures', fixedName);
+
+        fs.writeFile(nearPath, buf, (er) => {
+          if(er) log("fs.writeFile setPhoto er ", er);
+
+          const process_data = cacheBase.get('process_data');
+          process_data[key] = nearPath;
+          log({process_data});
+          cacheBase.set('process_data', process_data);
+        });
+      })
+    }
+
     if(check_photo_data && admin_set_photo_1) {
       bot.getFile(check_photo_data[check_photo_data.length-1].file_id)
       .then(data => {
         log({fileData: data});
         // 'process_data', {preview_1_path: '', preview_2_path: ''}
-        const process_data = cacheBase.get('process_data');
-        process_data.preview_1_path = data.file_path;
-        cacheBase.set('process_data', process_data);
+        saveAndUpdatePath({data, key: 'preview_1_path', fixedName: 'prev1.jpg'});
       })
       .catch(er => log(er));
       cacheBase.set('admin_set_photo_1', false);
@@ -239,9 +268,7 @@ bot.on('message', async (message) => {
       .then(data => {
         log({fileData: data});
         // 'process_data', {preview_1_path: '', preview_2_path: ''}
-        const process_data = cacheBase.get('process_data');
-        process_data.preview_2_path = data.file_path;
-        cacheBase.set('process_data', process_data);
+        saveAndUpdatePath({data, key: 'preview_2_path', fixedName: 'prev2.jpg'});
       })
       .catch(er => log(er));
       cacheBase.set('admin_set_photo_2', false);
@@ -354,20 +381,38 @@ bot.on('message', async (message) => {
         log("file data: ", data);
         const checkUserPhoto = user?.photo;
         console.log("checkUserPhoto ", checkUserPhoto);
+
+        const saveAndUpdateUserPhoto = () => {
+          const fileName = getPhotoName(data.file_path);
+          const nearPath = path.resolve(__dirname, '..', '..', 'decode_pictures', fileName);
+
+          fs.readFile(data.file_path, (er, buf) => {
+            if(er) log('user photo fs.readFile error: ', er);
+            fs.writeFile(nearPath, buf, (er) => {
+              if(er) log('user photo fs.writeFile error: ', er);
+
+              user.photo = nearPath;
+              user.save().catch(er => log(er));
+              profile_wakeup({user, bot, chatId, dlsMsg: 'Ваше фото обновлено\n'});
+            })
+          })
+        }
+
         if(checkUserPhoto) {
-          fs.unlink(checkUserPhoto, async er => {
-            log(er);
-            user.photo = data.file_path;
-        
-            user.save().catch(er => log(er));
-            // нужно предварительно удалить старую фотку, чтобы не сжирать память
-        
-            profile_wakeup({user, bot, chatId, dlsMsg: 'Ваше фото обновлено\n'});
+          // нужно предварительно удалить старую фотку, чтобы не сжирать память
+          fs.access(checkUserPhoto, (er) => {
+            if(er) {
+              saveAndUpdateUserPhoto();
+            } else {
+              fs.unlink(checkUserPhoto, async er => {
+                log(er);
+                saveAndUpdateUserPhoto();
+              });
+            }
           });
+          
         } else {
-          user.photo = data.file_path;
-          user.save().catch(er => log(er));
-          profile_wakeup({user, bot, chatId, dlsMsg: 'Ваше фото обновлено\n'});
+          saveAndUpdateUserPhoto();
         }
       })
       .catch(er => log(er));
