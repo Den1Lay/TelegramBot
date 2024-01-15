@@ -1,9 +1,9 @@
 /node_modules
 /tz
 /arch
-.env
-/Изображения
 
+/Изображения
+.env
 token.txt
 toDo.txt
 token.txt
