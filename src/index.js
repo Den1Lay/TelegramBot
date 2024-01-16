@@ -57,7 +57,7 @@ async function main() {
 // ================================================================
 // const url = 'https://22ab-94-140-144-153.ngrok-free.app';
 const url = process.env.API_URL
-const port = 80;
+const port = process.env.LIVE_PORT;
 
 // const bot = new TelegramBot(process.env.TELEGRAM_BOT_KEY, {
 //   polling: {
@@ -402,8 +402,9 @@ bot.on('message', async (message) => {
 
         if(checkUserPhoto) {
           // нужно предварительно удалить старую фотку, чтобы не сжирать память
-          fs.access(checkUserPhoto, (er) => {
+          fs.open(checkUserPhoto, 'r', (er) => {
             if(er) {
+              log('checkUserPhoto fs.open error: ', er);
               saveAndUpdateUserPhoto();
             } else {
               fs.unlink(checkUserPhoto, async er => {
@@ -411,7 +412,7 @@ bot.on('message', async (message) => {
                 saveAndUpdateUserPhoto();
               });
             }
-          });
+          })
 
         } else {
           saveAndUpdateUserPhoto();
