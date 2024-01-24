@@ -3,9 +3,9 @@
 /arch
 
 /Изображения
-.env
 token.txt
 toDo.txt
 token.txt
 run.sh
 .doc
+.env

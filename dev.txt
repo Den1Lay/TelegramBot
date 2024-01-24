@@ -1,0 +1,7 @@
+Включить:
+search_card_and_show:
+  user.checked.push(showUser.username); - включить
+  
+
+callback: 
+  Нужно раскомментировать: user.resLikes.push(tUser.username);

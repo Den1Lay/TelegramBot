@@ -29,7 +29,8 @@ const {
 } = require('./helpers.js')
 
 const {
-  getPhotoName
+  getPhotoName,
+  likesUpdate
 } = require('./common_helpers.js');
 const { mainDev } = require('./dev');
 
@@ -469,7 +470,11 @@ bot.on('callback_query', async query => {
 
   let user = await User.findOne({username: query.from.username});
   const username = query.from.username;
+  debugger
   // нужно заменить на использование данных из кеша.
+  log({callback_query_user: user});
+  // const mid1Flag = likesUpdate({user});
+  let hardSaveFlag = false;
 
   if (callback_data === 'profile') {
     profile_callback({user, query, bot});
@@ -528,6 +533,8 @@ bot.on('callback_query', async query => {
     const cv = user.visible;
     user.visible = cv === 'close' ? 'open' : 'close';
     user.save().catch(er => log(er));
+    hardSaveFlag = false;
+
     profile_callback({user, query, bot}, false);
   }
 
@@ -535,6 +542,8 @@ bot.on('callback_query', async query => {
     const sw = user.wish;
     user.wish = sw === 'friend' ? 'relation' : 'friend';
     user.save().catch(er => log(er));
+    hardSaveFlag = false;
+
     profile_callback({user, query, bot}, false);
   }
  
@@ -546,6 +555,8 @@ bot.on('callback_query', async query => {
     const payload_type = callback_data.slice(9);
     user.mbti = payload_type;
     user.save().catch(er => log(er));
+    hardSaveFlag = false;
+
     profile_callback({user, query, bot});
   }
 
@@ -575,6 +586,8 @@ bot.on('callback_query', async query => {
   if(callback_data === 'delete_show_text') {
     user.showText = '';
     user.save().catch(er => log(er));
+    hardSaveFlag = false;
+
     profile_wakeup({bot, user, chatId });
   }
 
@@ -602,12 +615,16 @@ bot.on('callback_query', async query => {
     else if (user.findSex === 'f') user.findSex = 'm';
     // else if (user.findSex === 'a') user.findSex = 'm';
     user.save().catch(er => log(er));
+    hardSaveFlag = false;
+
     profile_callback({user, query, bot}, false);
   }
 
   if(callback_data === 'set_mySex') {
     user.mySex = user.mySex === 'm' ? 'f' : 'm';
     user.save().catch(er => log(er));
+    hardSaveFlag = false;
+
     profile_callback({user, query, bot}, false);
   }
 
@@ -666,6 +683,8 @@ bot.on('callback_query', async query => {
         photo: 1,
         latitude: 1,
         longitude: 1,
+        deathLikes: 1,
+        mbti: 1,
       }
     );
     return showUser
@@ -680,13 +699,15 @@ bot.on('callback_query', async query => {
     };
 
     if(showUser) {
+      // debugger
       // вывод найденного пользователя
       user.checked.push(showUser.username);
+      // user.checked.push(showUser.username);
       console.log("showUser", showUser);
-      const {username, showName, showText, photo, latitude, longitude} = showUser;
+      const {username, showName, showText, photo, latitude, longitude, deathLikes: showDeathLikes, mbti} = showUser;
       // добавить расстояние до цели)
       bot.sendPhoto(chatId, photo, {
-        caption: `${showName} ${showText}`,
+        caption: `*${showName}*\n${showText}\nТип личности: ${mbti.toUpperCase()}\n🖤 лайки: ${showDeathLikes}`,
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
@@ -723,7 +744,9 @@ bot.on('callback_query', async query => {
         }
       })
     }
+    log({userAfterShowUser: user});
     user.save().catch(er => log(er));
+    hardSaveFlag = false;
   }
 
   const choose_type = callback_data.slice(0, 11);
@@ -744,15 +767,82 @@ bot.on('callback_query', async query => {
   if(like_callback === 'like') {
     const payload_user = callback_data.slice(5);
     log('payload_user ', payload_user);
+    if(!user.resLikes.includes(payload_user)) {
+      const tUser = await User.findOne({username: payload_user}, {chatId: 1, username: 1});
+    
+      const {showName, showText, photo, mbti} = user;
+      let showDeathLikes = user?.deathLikes === undefined ? 0 : user?.deathLikes;
+      
+      bot.sendPhoto(tUser.chatId, photo, {
+        caption: `*${showName}*\n${showText}\nТип личности: ${mbti.toUpperCase()}\n🖤 лайки: ${showDeathLikes}`,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: "Начать общение ❤",
+                callback_data: `accept_like_${username}`
+              }, 
+              {
+                text: "Отказать",
+                callback_data: 'reject_like'
+              }
+            ]
+          ]
+        }
+      });
 
-    const tUser = await User.findOne({username: payload_user}, {chatId});
-    bot.sendPhoto(tUser.chatId, user.photo, {
-      caption: `[${user.showName}](https://t.me/${user.username}) ${user.showText}`,
+      const message_id = query.message.message_id;
+      bot.editMessageReplyMarkup({
+        inline_keyboard: [
+          [{
+            text: "Next",
+            callback_data: 'next'
+          }]
+        ]
+      }, {
+        chat_id: chatId,
+        message_id: message_id
+      })
+
+      // user.resLikes.push(tUser.username);
+      user.save().catch(er => log({er}));
+
+    } else {
+      log("like already sended");
+    }
+  }
+
+  const accept_like = callback_data.slice(0, 11);
+  if(accept_like === 'accept_like') {
+    const payload = callback_data.slice(12);
+    log({accept_like, payload});
+
+    const tUser = await User.findOne({username: payload}, {showName: 1, username: 1, photo: 1, showText: 1, deathLikes: 1, mbti: 1});
+    const message_id = query.message.message_id;
+    bot.deleteMessage(chatId, message_id);
+    log({tUser});
+    const {showName, username, photo, showText, deathLikes: showDeathLikes, mbti} = tUser;
+
+    bot.sendPhoto(chatId, photo, {
+      caption: `Ссылка на пользователя: [${showName}](https://t.me/${username})\n${showText}\nТип личности: ${mbti.toUpperCase()}\n🖤 лайки: ${showDeathLikes}\nУдачного общения 🍇`,
       parse_mode: 'Markdown',
       reply_markup: {
         remove_keyboard: true
       }
     });
+    
+    user.deathLikes+=1;
+    user.save().catch(er => log({er}));
+    
+    return;
+  }
+  
+  const reject_like = callback_data.slice(0, 11);
+  if(reject_like === 'reject_like') {
+    log({reject_like});
+    const message_id = query.message.message_id;
+    bot.deleteMessage(chatId, message_id);
   }
 
   
@@ -845,6 +935,8 @@ bot.on('callback_query', async query => {
       }
       user.mbti = resType.toLowerCase();
       user.save().catch(er => log(er));
+      hardSaveFlag = false;
+
       profile_callback({user, query, bot, dlsMsg: `Ваш тип личности: _${user.mbti}_. Данные профиля обновлены.\n\n`});
       
       // очистка кеш, хранилища
@@ -861,8 +953,15 @@ bot.on('callback_query', async query => {
     test_next_step({user, query, bot, step: cacheDataObj.step, midMbti: midMbti.payload});
     
   }
-  
+
+  // log("end point process");
+  if(hardSaveFlag) {
+    log('end point hard save');
+    user.save().catch(er => log({head: "end point process", er}));
+  }
 })
+
+
 
 function clearCache(user) {
   const username = user.username;

@@ -40,6 +40,23 @@ const UserSchema = new Schema({
   resp: [String],
   checked: [String],
   location_range: Number,
+  searchLike: {
+    type: Number,
+    default: 5
+  },
+  acceptLike: {
+    type: Number,
+    default: 5
+  },
+  lastLikeUpdate: {
+    type: Date,
+    default: Date.now()
+  },
+  deathLikes: {
+    type: Number,
+    default: 0
+  },
+  resLikes: [String]
 })
 
 const user = model('User', UserSchema);
