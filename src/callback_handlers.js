@@ -214,9 +214,9 @@ const groups_wakeup = async ({user, query, bot}) => {
 }
 
 const preview_wakeup = async ({user={}, chatId, bot, process_data}) => {
-  const {preview_1_path, preview_2_path} = process_data;
+  const {preview_1_path, preview_2_path, preview_3_path} = process_data;
 
-  if(!preview_1_path.length || !preview_2_path.length) {
+  if(!preview_1_path.length || !preview_2_path.length || !preview_3_path.length) {
     bot.sendMessage(chatId, 'Нет файлов');
     return
   }
@@ -231,6 +231,10 @@ const preview_wakeup = async ({user={}, chatId, bot, process_data}) => {
     {
       type: 'photo',
       media: preview_2_path
+    },
+    {
+      type: 'photo',
+      media: preview_3_path
     },
   ]);
   return

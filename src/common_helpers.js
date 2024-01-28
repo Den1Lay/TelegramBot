@@ -1,3 +1,5 @@
+const { User } = require('./models');
+
 const getPhotoName = (fullPath) => {
   const fullLen = fullPath.length
 
@@ -40,8 +42,41 @@ const likesUpdate = ({user}) => {
   return returnFlag;
 }
 
+const testCleaner = ({cacheBase, bot}) => {
+  const live_mbti_data = cacheBase.get('live_mbti_data');
+  console.log("test clear: ", live_mbti_data);
+  // User.find({$or: [{}] })
+  live_mbti_data.data.forEach(({chatId} ) => {
+    bot.sendMessage(chatId, "Ваши результаты обнулены.\nПройдите тест заново.", {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: "Профиль",
+              callback_data: 'profile'
+            }
+          ]
+        ]
+      }
+    });
+  });
+
+  cacheBase.set('live_mbti_data', {users: [], data: []});
+}
+
+const computeRange = ({latitude: lat, longitude: lon, tLat, tLon}) => {
+  
+  const lat_koef = 0.01057;
+  const lon_koef = 0.016;
+  const range = Math.sqrt(Math.pow((lat - tLat)/lat_koef, 2) + Math.pow((lon - tLon)/lon_koef, 2));
+
+  return range;
+}
 
 module.exports = {
   getPhotoName,
-  likesUpdate
+  likesUpdate,
+  testCleaner,
+  computeRange
 }

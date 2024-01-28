@@ -30,7 +30,8 @@ const {
 
 const {
   getPhotoName,
-  likesUpdate
+  testCleaner,
+  computeRange
 } = require('./common_helpers.js');
 const { mainDev } = require('./dev');
 
@@ -111,7 +112,8 @@ app.listen(port, () => {
   cacheBase.set('admin_set_photo_1', false);
   cacheBase.set('admin_set_photo_2', false);
   cacheBase.set('admin_set_db', false);
-  cacheBase.set('process_data', {preview_1_path: '', preview_2_path: ''});
+  cacheBase.set('process_data', {preview_1_path: '', preview_2_path: '', preview_3_path: ''});
+  
   console.log(`Express server is listening on ${port}`);
 });
 
@@ -153,7 +155,7 @@ bot.onText(/\/start/, async message => {
       searchType: '',
       inTest: false,
 
-      visible: 'close',
+      visible: 'open',
       latitude: 0,
       longitude: 0,
       photo: '',
@@ -206,12 +208,21 @@ bot.on('message', async (message) => {
 
   if(username === 'Den1Lay') {
     // точка входа разработчика
+    if(message.text === 'clear_cache') {
+      log("start clear setInterval");
+      setInterval(() => testCleaner({cacheBase, bot}), 1*60*1000);
+    } 
+
     if(message.text === 'setup_photo_1') {
       cacheBase.set('admin_set_photo_1', true);
     }
 
     if(message.text === 'setup_photo_2') {
       cacheBase.set('admin_set_photo_2', true);
+    }
+
+    if(message.text === 'setup_photo_3') {
+      cacheBase.set('admin_set_photo_3', true);
     }
 
     if(message.text === 'get_db') {
@@ -236,6 +247,7 @@ bot.on('message', async (message) => {
     const check_photo_data = message?.photo;
     const admin_set_photo_1 = cacheBase.get('admin_set_photo_1');
     const admin_set_photo_2 = cacheBase.get('admin_set_photo_2');
+    const admin_set_photo_3 = cacheBase.get('admin_set_photo_3');
     const saveAndUpdatePath = ({data, key, fixedName='prev.jpg'}) => {
       // const photoName = getPhotoName(data.file_path);
       fs.readFile(data.file_path, (er, buf) => {
@@ -273,6 +285,17 @@ bot.on('message', async (message) => {
       })
       .catch(er => log(er));
       cacheBase.set('admin_set_photo_2', false);
+    }
+
+    if(check_photo_data && admin_set_photo_3) {
+      bot.getFile(check_photo_data[check_photo_data.length-1].file_id)
+      .then(data => {
+        log({fileData: data});
+        // 'process_data', {preview_1_path: '', preview_2_path: ''}
+        saveAndUpdatePath({data, key: 'preview_3_path', fixedName: 'prev3.jpg'});
+      })
+      .catch(er => log(er));
+      cacheBase.set('admin_set_photo_3', false);
     }
 
     const check_document_data = message?.document;
@@ -692,7 +715,7 @@ bot.on('callback_query', async query => {
 
   const search_card_and_show = async (isNext=false) => {
     let showUser = await search_loop(isNext);
-    while(user.location_range < 4 && !showUser) {
+    while(user.location_range < 10 && !showUser) {
       user.location_range = user.location_range*2;
       console.log("user.location_range", user.location_range);
       showUser = await search_loop(isNext);
@@ -704,10 +727,14 @@ bot.on('callback_query', async query => {
       user.checked.push(showUser.username);
       // user.checked.push(showUser.username);
       console.log("showUser", showUser);
-      const {username, showName, showText, photo, latitude, longitude, deathLikes: showDeathLikes, mbti} = showUser;
+      const {username, showName, showText, photo, latitude: tLat, longitude: tLon, deathLikes: showDeathLikes, mbti} = showUser;
       // добавить расстояние до цели)
+      const {latitude, longitude} = user;
+      const range = computeRange({latitude, longitude, tLat, tLon});
+      log({range});
+
       bot.sendPhoto(chatId, photo, {
-        caption: `*${showName}*\n${showText}\nТип личности: ${mbti.toUpperCase()}\n🖤 лайки: ${showDeathLikes}`,
+        caption: `*${showName}*\n${showText}\nТип личности: ${mbti.toUpperCase()}\n📍${range.toFixed(2)} км\n🖤 лайки: ${showDeathLikes}`,
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
@@ -869,7 +896,7 @@ bot.on('callback_query', async query => {
     const mbtiDataObj = getMbtiDataObj();
   
     users.push(user.username);
-    data.push({username: user.username, mbtiDataObj});
+    data.push({username: user.username, mbtiDataObj, chatId});
     // log({users, data, mbtiDataObj});
     cacheBase.set('live_mbti_data', {users, data});
     
@@ -884,7 +911,7 @@ bot.on('callback_query', async query => {
   if(test_next === 'test_next') {
     const flag = callback_data[10];
     const {users, data} = cacheBase.get('live_mbti_data');
-    let userInd = 0;
+    let userInd = -1;
     for(let i = 0; i < data.length; i++) {
       if(data[i].username === user.username) {
         userInd = i;
@@ -893,6 +920,10 @@ bot.on('callback_query', async query => {
     }
     // log({userInd});
     
+    if(userInd === -1) {
+      return
+    }
+
     const cacheDataObj = data[userInd].mbtiDataObj;
     // log({cacheDataObj});
     // обработка сообщений
