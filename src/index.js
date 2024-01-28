@@ -31,7 +31,8 @@ const {
 const {
   getPhotoName,
   testCleaner,
-  computeRange
+  computeRange,
+  checkReadyToShow
 } = require('./common_helpers.js');
 const { mainDev } = require('./dev');
 
@@ -363,6 +364,8 @@ bot.on('message', async (message) => {
     const { latitude, longitude } = check_location_data
     user.latitude = latitude;
     user.longitude = longitude;
+
+    checkReadyToShow(user);
     user.save().catch(er => log(er));
     profile_wakeup({user, bot, chatId});
 
@@ -418,6 +421,7 @@ bot.on('message', async (message) => {
               if(er) log('user photo fs.writeFile error: ', er);
 
               user.photo = nearPath;
+              checkReadyToShow(user);
               user.save().catch(er => log(er));
               profile_wakeup({user, bot, chatId, dlsMsg: 'Ваше фото обновлено\n'});
             })
@@ -577,6 +581,7 @@ bot.on('callback_query', async query => {
   if(callback_data.slice(0, 8) === 'set_mbti') {
     const payload_type = callback_data.slice(9);
     user.mbti = payload_type;
+    checkReadyToShow(user);
     user.save().catch(er => log(er));
     hardSaveFlag = false;
 
@@ -693,6 +698,7 @@ bot.on('callback_query', async query => {
         {mySex:findSex},
         {findSex: mySex},
         // {wish},
+        {readyToShow: true},
         {visible: 'open'},
         {$nor: norArray},
       ]

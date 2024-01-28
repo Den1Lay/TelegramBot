@@ -56,7 +56,11 @@ const UserSchema = new Schema({
     type: Number,
     default: 0
   },
-  resLikes: [String]
+  resLikes: [String],
+  readyToShow: {
+    type: Boolean,
+    default: false
+  }
 })
 
 const user = model('User', UserSchema);

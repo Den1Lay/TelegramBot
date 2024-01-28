@@ -74,9 +74,22 @@ const computeRange = ({latitude: lat, longitude: lon, tLat, tLon}) => {
   return range;
 }
 
+const checkReadyToShow = (user) => {
+  const { mbti, latitude, longitude, photo, readyToShow } = user;
+  if(readyToShow) {
+    return
+  } else {
+    if(mbti.length && (latitude > 0) && (longitude > 0) && photo.length) {
+      user.readyToShow = true;
+    }
+  }
+
+}
+
 module.exports = {
   getPhotoName,
   likesUpdate,
   testCleaner,
-  computeRange
+  computeRange,
+  checkReadyToShow
 }
