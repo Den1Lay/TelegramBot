@@ -115,6 +115,11 @@ app.listen(port, () => {
   cacheBase.set('admin_set_db', false);
   cacheBase.set('process_data', {preview_1_path: '', preview_2_path: '', preview_3_path: ''});
   
+  cacheBase.set('mbti_counter', {infp: 0, enfp: 0, intp: 0, entp:0, istp: 0, estp: 0, isfp: 0, esfp: 0, infj: 0, enfj: 0, intj: 0, entj: 0, istj: 0, estj: 0, isfj: 0, esfj: 0});
+
+  initMbtiCounter();
+
+
   console.log(`Express server is listening on ${port}`);
 });
 
@@ -580,7 +585,9 @@ bot.on('callback_query', async query => {
 
   if(callback_data.slice(0, 8) === 'set_mbti') {
     const payload_type = callback_data.slice(9);
+    mbtiCounterMiddleware({plus:payload_type, minus: user.mbti});
     user.mbti = payload_type;
+
     checkReadyToShow(user);
     user.save().catch(er => log(er));
     hardSaveFlag = false;
@@ -661,11 +668,13 @@ bot.on('callback_query', async query => {
   }
 
   if(callback_data === 'show_groups') {
-    groups_callback({user, query, bot});
+    const mbti_counter = cacheBase.get('mbti_counter');
+    groups_callback({user, query, bot, mbti_counter});
   }
 
   if(callback_data === 'groups_wakeup') {
-    groups_wakeup({user, query, bot});
+    const mbti_counter = cacheBase.get('mbti_counter');
+    groups_wakeup({user, query, bot, mbti_counter});
   }
 
   const search_loop = async (isNext=false) => {
@@ -740,7 +749,7 @@ bot.on('callback_query', async query => {
       log({range});
 
       bot.sendPhoto(chatId, photo, {
-        caption: `*${showName}*\n${showText}\nТип личности: ${mbti.toUpperCase()}\n📍${range.toFixed(2)} км\n🖤 лайки: ${showDeathLikes}`,
+        caption: `*${showName}*\n${showText}\nТип личности: ${mbti.toUpperCase()}\n📍${range.toFixed(2)} км\n🖤 сердца: ${showDeathLikes}`,
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
@@ -759,8 +768,8 @@ bot.on('callback_query', async query => {
       });
     } else {
       // вывод сообщения о том, что никого нет.
-      console.log('Nobody (((');
-      bot.sendMessage(chatId, "Nobody more", {
+      console.log('Рядом никого нет.\nПосмотрите анкеты с другими типами личностей, а также оставьте свою анкету открытой.\nВозможно, Вам скоро кто-то напишет)');
+      bot.sendMessage(chatId, "Никого рядом не нашлось.\nПопробуйте другие группы.\nДержите свою анкету открытой для поиска, возможно, Вам скоро кто-то напишет.", {
         reply_markup: {
           inline_keyboard: [
             [{
@@ -838,7 +847,7 @@ bot.on('callback_query', async query => {
         message_id: message_id
       })
 
-      // user.resLikes.push(tUser.username);
+      user.resLikes.push(tUser.username);
       user.save().catch(er => log({er}));
 
     } else {
@@ -858,7 +867,7 @@ bot.on('callback_query', async query => {
     const {showName, username, photo, showText, deathLikes: showDeathLikes, mbti} = tUser;
 
     bot.sendPhoto(chatId, photo, {
-      caption: `Ссылка на пользователя: [${showName}](https://t.me/${username})\n${showText}\nТип личности: ${mbti.toUpperCase()}\n🖤 лайки: ${showDeathLikes}\nУдачного общения 🍇`,
+      caption: `Ссылка на пользователя: [${showName}](https://t.me/${username})\n${showText}\nТип личности: ${mbti.toUpperCase()}\n🖤 сердца: ${showDeathLikes}\nУдачного общения 🍇`,
       parse_mode: 'Markdown',
       reply_markup: {
         remove_keyboard: true
@@ -970,7 +979,9 @@ bot.on('callback_query', async query => {
       } else {
         resType = `${dlsSimb}${payload}`;
       }
-      user.mbti = resType.toLowerCase();
+      const mbtiStr = resType.toLowerCase();
+      mbtiCounterMiddleware({plus: mbtiStr, minus: user.mbti})
+      user.mbti = mbtiStr;
       user.save().catch(er => log(er));
       hardSaveFlag = false;
 
@@ -1034,4 +1045,40 @@ function clearCache(user) {
 
   // log({locDataInd, photoDataInd})
   log({photoData, nameData, textData});
+}
+
+function initMbtiCounter() {
+  const mbti_counter = cacheBase.get('mbti_counter');
+
+  log({mbti_counter});
+  User.find({}, {mbti: 1, visible: 1}).then((data) => {
+    log({initMbtiCounterData: data});
+    if(data.length) {
+      data.forEach(({mbti, visible}) => {
+        if(visible === 'open' && mbti.length)  {
+          mbti_counter[mbti] = mbti_counter[mbti] + 1;
+        }
+      });
+
+      cacheBase.set('mbti_counter', mbti_counter);
+      log({new_mbti_counter: mbti_counter});
+    }
+  }).catch(er => log({er}))
+
+  
+}
+
+function mbtiCounterMiddleware({plus, minus}) {
+  const mbti_counter = cacheBase.get('mbti_counter');
+  if(minus.length) {
+    mbti_counter[minus] = mbti_counter[minus] - 1;
+    if(mbti_counter[minus] < 0) {
+      mbti_counter[minus] = 0;
+    }
+  }
+  if(plus.length) {
+    mbti_counter[plus] = mbti_counter[plus] + 1;
+  }
+  log({mbtiCounterMiddleware: mbti_counter });
+  cacheBase.set('mbti_counter', mbti_counter);
 }

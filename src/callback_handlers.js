@@ -101,30 +101,34 @@ const mbtiKeyboard = () => {
   });
 }
 
-const groupKeyboard = (type) => {
+const groupKeyboard = (type, mbti_counter) => {
   type = type.toUpperCase();
+  console.log({mbti_counter_inside: mbti_counter});
+  mbti_counter[type.toLowerCase()] = mbti_counter[type.toLowerCase()] - 1;
   // ISTP: -> ESTP, ESFP, ISFP
   const resArr = [`E${type[1]}T${type[3]}`, `I${type[1]}T${type[3]}`, `E${type[1]}F${type[3]}`, `I${type[1]}F${type[3]}`];
   const allTypes = ['SFJ', 'STJ', 'NFJ', 'NTJ', 'SFP', 'STP', 'NTP', 'NFP'].map(el => ['E'+el, 'I'+el]).flat();
   const filtered = allTypes.filter(el => !resArr.some(t => t === el));
   let result = resArr.map(type => [{
-    text: `+${type}`,
+    text: `+${type} ${mbti_counter[type.toLowerCase()]}`,
     callback_data: `choose_type_${type.toLowerCase()}`
   }]);
   const dlsArr = [];
+
+  
   for(let i = 0; i < filtered.length/2; i++) {
     const type1 = filtered[i*2];
     const type2 = filtered[i*2+1];
     dlsArr.push([
       {
-        text: type1,
+        text: `${type1} ${mbti_counter[type1.toLowerCase()]}`,
         callback_data: `choose_type_${type1.toLowerCase()}`
       },
       {
-        text: type2,
+        text: `${type2} ${mbti_counter[type2.toLowerCase()]}`,
         callback_data: `choose_type_${type2.toLowerCase()}`
       }
-    ])
+    ]);
   }
   result = result.concat(dlsArr);
   console.log("dlsArr ", dlsArr);
@@ -145,7 +149,7 @@ const prepare_markdown = (user, dlsMsg = '') => {
 
   const dls = `${!mbti.length ? '_тип личности MBTI,_ ' : ''}${!photo.length ? '_фото анкеты,_ ' : ''}${!locateCheck ? '_ваше местоположение._' : ''}`;
   const markdown = 
-  `${dlsMsg}*Профиль*\nДля редактирования нажмите на соотвествующую кнопку\n${resCheck ? 'Для доступа к группам Вам еще необходимо указать:\n' : ''}${resCheck ? dls : ''}`;
+  `${dlsMsg}*Профиль*\nДля редактирования нажмите на соответствующую кнопку\n${resCheck ? 'Для доступа к группам Вам еще необходимо указать:\n' : ''}${resCheck ? dls : ''}`;
   return markdown;
 }
 
@@ -190,25 +194,27 @@ const show_mbti = async ({user, query, bot}) => {
 
 }
 
-const groups_callback = async ({user, query, bot}) => {
+const groups_callback = async ({user, query, bot, mbti_counter}) => {
   const chat_id = query.message.chat.id;
   const message_id = query.message.message_id;
-  bot.editMessageText("*Группы личностей.*\nРекомендуемые с +", {chat_id, message_id, parse_mode: 'Markdown'});
+  console.log({groups_callback_mbti_counter: mbti_counter});
+  bot.editMessageText("*Группы личностей.*\nРекомендуемые с +\nКол-во пользователей группы показано правее от названия", {chat_id, message_id, parse_mode: 'Markdown'});
   bot.editMessageReplyMarkup(
     {
-      inline_keyboard: groupKeyboard(user.mbti)
+      inline_keyboard: groupKeyboard(user.mbti, mbti_counter)
     },
     {chat_id, message_id}
   )
 }
 
-const groups_wakeup = async ({user, query, bot}) => {
+const groups_wakeup = async ({user, query, bot, mbti_counter}) => {
   const chat_id = query.message.chat.id;
 
-  bot.sendMessage(chat_id, "*Группы личностей.*\nРекомендуемые с +", {
+  console.log({groups_wakeup: mbti_counter});
+  bot.sendMessage(chat_id, "*Группы личностей.*\nРекомендуемые с +\nКол-во пользователей группы показано правее от названия", {
     parse_mode: 'Markdown',
     reply_markup: {
-      inline_keyboard: groupKeyboard(user.mbti)
+      inline_keyboard: groupKeyboard(user.mbti, mbti_counter)
     }
   })
 }
